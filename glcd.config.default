@@ -1,0 +1,8 @@
+[nsq]
+lookupd-address = localhost:4161
+server-topic = glcd-server
+server-channel = main#ephemeral
+
+[mongo]
+servers = localhost
+db = test
