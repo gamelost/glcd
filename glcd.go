@@ -65,6 +65,8 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	glcd.ConfigFile = conf
 	glcd.Online = false
 
+	glcd.Clients = map[string]*GLCClient{}
+
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
 	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
 	serverTopic, _ := conf.GetString("nsq", "server-topic")
@@ -98,7 +100,9 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 func (cl *GLCClient) Publish(msg *Message) {
 	if cl.Writer == nil {
 		args := strings.SplitN(cl.Clientid, ":", 3)
+		if len(args) != 3 { return }
 		host, port, topic := args[0], args[1], args[2]
+		log.Printf("cl.publish: Attempting to connect to '" + host + ":" + port + "'")
 		cl.Writer = nsq.NewWriter(host + ":" + port)
 		cl.Topic = topic
 	}
@@ -159,6 +163,7 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 	// If "client" from JSON is 
 	command, ok := cmddata.(string)
 	if !ok { return fmt.Errorf("Invalid format: command is not a string.") }
+	log.Printf("We got a command: ", command)
 
 	switch command {
 	case "ping":
