@@ -48,7 +48,7 @@ type GLCClient struct {
 	Writer		*nsq.Writer
 	Heartbeat	time.Time
 	Clientid	string
-	State		interface{}		// json representation of player state.
+	State		*Message		// json representation of player state.
 }
 
 // struct type for Bot3
@@ -163,6 +163,7 @@ func (glcd *GLCD) CleanupClients() error {
 		for k, v := range glcd.Clients {
 			if v.Heartbeat.Unix() < exp {
 				delete(glcd.Clients, k)
+				glcd.SendCommandAll("playerGone", &Message{"client": k})
 			}
 		}
 	}
@@ -255,8 +256,8 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 		cl = &GLCClient{}
 		cl.Clientid = clientid
 		glcd.Clients[clientid] = cl
-		cl.Heartbeat = time.Now()
 	}
+	cl.Heartbeat = time.Now()
 
 	// Now perform the client's action.
 	cmddata, ok := msg["command"]
@@ -274,13 +275,13 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 	case "ping":
 		cl.Publish(&Message{"pong": fmt.Sprint(time.Now())})
 		break
-// 	case "playerState":
-// 		newstate, ok := msg["data"]
-// 		if ok {
-// 			cl.State = newstate
-// 			cl.Publish(&Message{"pong": fmt.Sprint(time.Now())})
-// 		}
-// 		break
+	case "playerState":
+		_, ok := msg["data"]
+		if ok {
+			cl.State = &msg
+			glcd.SendCommandAll("playerState", &msg)
+		}
+		break
 	case "updateZone":
 		args, ok := msg["data"]
 		if !ok { break }
@@ -310,7 +311,12 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 		glcd.SendZone(cl, zone)
 		break
 	case "connected":
+		// Send all Zones
 		glcd.SendZones(cl)
+		// Send all player states.
+		for _, v := range(glcd.Clients) {
+			cl.SendCommand("playerState", v.State)
+		}
 		break
 	case "wall":
 		for _, v := range(glcd.Clients) {
