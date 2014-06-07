@@ -260,8 +260,8 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 	// Make sure client exists in glcd.Clients
 	cl, exists := glcd.Clients[clientid]
 	if !exists {
-		//cl = &GLCClient{}
-		//cl.Clientid = clientid
+		cl = &GLCClient{}
+		cl.Clientid = clientid
 		//glcd.Clients[clientid] = cl
 	}
 	cl.Heartbeat = time.Now()
