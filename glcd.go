@@ -43,27 +43,27 @@ func main() {
 }
 
 type GLCClient struct {
-	Name		string
-	Topic		string
-	Writer		*nsq.Writer
-	Heartbeat	time.Time
-	Clientid	string
-	State		*Message		// json representation of player state.
+	Name      string
+	Topic     string
+	Writer    *nsq.Writer
+	Heartbeat time.Time
+	Clientid  string
+	State     *Message // json representation of player state.
 }
 
 // struct type for Bot3
 type GLCD struct {
-	Online			 bool
-	ConfigFile		 *iniconf.ConfigFile
+	Online     bool
+	ConfigFile *iniconf.ConfigFile
 
 	// NSQ input/output to bot3Server
-	GLCInput		 *nsq.Reader
-	Clients			 map[string] *GLCClient
+	GLCInput *nsq.Reader
+	Clients  map[string]*GLCClient
 
-	QuitChan                 chan os.Signal
+	QuitChan chan os.Signal
 
-	MongoSession		*mgo.Session
-	MongoDB			*mgo.Database
+	MongoSession *mgo.Session
+	MongoDB      *mgo.Database
 }
 
 func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
@@ -92,7 +92,6 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	}
 
 	glcd.MongoDB = glcd.MongoSession.DB(db)
-
 
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
 	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
@@ -125,7 +124,9 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 func (cl *GLCClient) Publish(msg *Message) {
 	if cl.Writer == nil {
 		args := strings.SplitN(cl.Clientid, ":", 3)
-		if len(args) != 3 { return }
+		if len(args) != 3 {
+			return
+		}
 		host, port, topic := args[0], args[1], args[2]
 		// log.Printf("cl.publish: Attempting to connect to '" + host + ":" + port + "'")
 		cl.Writer = nsq.NewWriter(host + ":" + port)
@@ -150,7 +151,7 @@ func (glcd *GLCD) SendCommandAll(command string, data *Message) {
 	msg := Message{}
 	msg["command"] = command
 	msg["data"] = data
-	for _, v := range(glcd.Clients) {
+	for _, v := range glcd.Clients {
 		v.Publish(&msg)
 	}
 }
@@ -191,7 +192,7 @@ func (glcd *GLCD) SendZones(cl *GLCClient) {
 
 func (glcd *GLCD) SendZone(cl *GLCClient, zone string) {
 	c := glcd.MongoDB.C("zones")
-	query := bson.M{"zone":zone}
+	query := bson.M{"zone": zone}
 	results := c.Find(query)
 
 	if results == nil {
@@ -209,7 +210,7 @@ func (glcd *GLCD) SendZone(cl *GLCClient, zone string) {
 
 // Send a zone file update.
 func (glcd *GLCD) UpdateZone(cl *GLCClient, zone string, zdata interface{}) {
-	query := bson.M{"zone":zone}
+	query := bson.M{"zone": zone}
 
 	c := glcd.MongoDB.C("zones")
 	val := bson.M{"type": "zone", "zdata": zdata, "timestamp": time.Now()}
@@ -235,15 +236,21 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 
 	err := json.Unmarshal(message.Body, &msg)
 
-	if err != nil { return fmt.Errorf("Not a JSON interface") }
+	if err != nil {
+		return fmt.Errorf("Not a JSON interface")
+	}
 
 	// If "client" is not in the JSON received, dump it.
 	cdata, ok := msg["client"]
-	if !ok { return fmt.Errorf("No client provided") }
+	if !ok {
+		return fmt.Errorf("No client provided")
+	}
 
-	// If "client" from JSON is 
+	// If "client" from JSON is
 	clientid, ok := cdata.(string)
-	if !ok { return fmt.Errorf("Invalid format: client is not a string.") }
+	if !ok {
+		return fmt.Errorf("Invalid format: client is not a string.")
+	}
 
 	// Ignore our silly "create a topic" message.
 	if clientid == "server" {
@@ -251,11 +258,11 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 	}
 
 	// Make sure client exists in glcd.Clients
-	cl, exists := glcd.Clients[clientid];
+	cl, exists := glcd.Clients[clientid]
 	if !exists {
-		cl = &GLCClient{}
-		cl.Clientid = clientid
-		glcd.Clients[clientid] = cl
+		//cl = &GLCClient{}
+		//cl.Clientid = clientid
+		//glcd.Clients[clientid] = cl
 	}
 	cl.Heartbeat = time.Now()
 
@@ -266,9 +273,11 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 		return nil
 	}
 
-	// If "client" from JSON is 
+	// If "client" from JSON is
 	command, ok := cmddata.(string)
-	if !ok { return fmt.Errorf("Invalid format: command is not a string.") }
+	if !ok {
+		return fmt.Errorf("Invalid format: command is not a string.")
+	}
 	// log.Printf("We got a command: ", command)
 
 	switch command {
@@ -284,29 +293,51 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 		break
 	case "updateZone":
 		args, ok := msg["data"]
-		if !ok { break }
+		if !ok {
+			break
+		}
 		margs, ok := args.(Message)
-		if !ok { break }
+		if !ok {
+			break
+		}
 		zonei, ok := margs["zone"]
-		if !ok { break }
+		if !ok {
+			break
+		}
 		zone, ok := zonei.(string)
-		if !ok { break }
+		if !ok {
+			break
+		}
 
 		zdata, ok := margs["data"]
-		if !ok { break }
+		if !ok {
+			break
+		}
 
 		glcd.UpdateZone(cl, zone, zdata)
 	case "sendZone":
 		args, ok := msg["data"]
-		if !ok { log.Printf("No data in sendZone"); break }
+		if !ok {
+			log.Printf("No data in sendZone")
+			break
+		}
 		log.Println("data:")
 		log.Println(args)
 		margs, ok := args.(map[string]interface{})
-		if !ok { log.Printf("args is not a message in sendZone"); break }
+		if !ok {
+			log.Printf("args is not a message in sendZone")
+			break
+		}
 		zonei, ok := margs["zone"]
-		if !ok { log.Printf("No zone in sendZone"); break }
+		if !ok {
+			log.Printf("No zone in sendZone")
+			break
+		}
 		zone, ok := zonei.(string)
-		if !ok { log.Printf("Zone is not a string in sendZone"); break }
+		if !ok {
+			log.Printf("Zone is not a string in sendZone")
+			break
+		}
 
 		glcd.SendZone(cl, zone)
 		break
@@ -314,12 +345,12 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 		// Send all Zones
 		glcd.SendZones(cl)
 		// Send all player states.
-		for _, v := range(glcd.Clients) {
+		for _, v := range glcd.Clients {
 			cl.SendCommand("playerState", v.State)
 		}
 		break
 	case "wall":
-		for _, v := range(glcd.Clients) {
+		for _, v := range glcd.Clients {
 			v.Publish(&msg)
 		}
 	}
