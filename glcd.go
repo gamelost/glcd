@@ -92,6 +92,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 	glcd.MongoDB = glcd.MongoSession.DB(db)
 
+	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
 	glcd.GLCGameStateTopicName, _ = conf.GetString("nsq", "server-topic")
 
@@ -99,7 +100,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 	// Create the channel, by connecting to lookupd. (TODO; if it doesn't
 	// exist. Also do it the right way with a Register command?)
-	glcd.NSQWriter = nsq.NewWriter(lookupdAddress)
+	glcd.NSQWriter = nsq.NewWriter(nsqdAddress)
 	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, []byte("{\"client\":\"server\"}"))
 
 	// set up listener for heartbeat from bot3server
