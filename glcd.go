@@ -20,8 +20,6 @@ const (
 	GLCD_CONFIG = "glcd.config"
 )
 
-var gamestateTopic = ""
-
 type Message map[string]interface{}
 
 func main() {
@@ -35,12 +33,11 @@ func main() {
 		log.Fatal("Unable to read configuration file. Exiting now.")
 	}
 
-	glcd := &GLCD{}
-	glcd.QuitChan = sigChan
+	glcd := &GLCD{QuitChan: sigChan}
 	glcd.init(configFile)
 
 	// receiving quit shuts down
-	<-sigChan
+	<-glcd.QuitChan
 }
 
 type GLCClient struct {
@@ -56,9 +53,11 @@ type GLCD struct {
 	ConfigFile *iniconf.ConfigFile
 
 	// NSQ input/output
-	Writer    *nsq.Writer
-	GLCInput *nsq.Reader
-	Clients  map[string]*GLCClient
+	NSQWriter             *nsq.Writer
+	GLCDaemonTopic        *nsq.Reader
+	GLCGameStateTopicName string
+	GLCDaemonTopicChannel string
+	Clients               map[string]*GLCClient
 
 	QuitChan chan os.Signal
 
@@ -94,24 +93,23 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	glcd.MongoDB = glcd.MongoSession.DB(db)
 
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
-	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
-	gamestateTopic, _ = conf.GetString("nsq", "server-topic")
-	//gamestateChannel, _ := conf.GetString("nsq", "server-channel")
+	glcd.GLCGameStateTopicName, _ = conf.GetString("nsq", "server-topic")
+
 	glcdTopic, _ := conf.GetString("nsq", "glcd-topic")
 
 	// Create the channel, by connecting to lookupd. (TODO; if it doesn't
 	// exist. Also do it the right way with a Register command?)
-	glcd.Writer = nsq.NewWriter(nsqdAddress)
-	glcd.Writer.Publish(gamestateTopic, []byte("{\"client\":\"server\"}"))
+	glcd.NSQWriter = nsq.NewWriter(lookupdAddress)
+	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, []byte("{\"client\":\"server\"}"))
 
 	// set up listener for heartbeat from bot3server
 	reader, err := nsq.NewReader(glcdTopic, "main")
 	if err != nil {
 		glcd.QuitChan <- syscall.SIGINT
 	}
-	glcd.GLCInput = reader
-	glcd.GLCInput.AddHandler(glcd)
-	glcd.GLCInput.ConnectToLookupd(lookupdAddress)
+	glcd.GLCDaemonTopic = reader
+	glcd.GLCDaemonTopic.AddHandler(glcd)
+	glcd.GLCDaemonTopic.ConnectToLookupd(lookupdAddress)
 
 	// Spawn goroutine to clear out clients who don't send hearbeats
 	// anymore.
@@ -122,7 +120,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 func (glcd *GLCD) Publish(msg *Message) {
 	encodedRequest, _ := json.Marshal(*msg)
-	glcd.Writer.Publish(gamestateTopic, encodedRequest)
+	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, encodedRequest)
 }
 
 func (glcd *GLCD) CleanupClients() error {
@@ -201,8 +199,6 @@ func (glcd *GLCD) UpdateZone(cl *GLCClient, zone string, zdata interface{}) {
 }
 
 func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
-
-	fmt.Println("In handlemessage")
 
 	msg := Message{}
 
