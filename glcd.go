@@ -92,7 +92,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 	glcd.MongoDB = glcd.MongoSession.DB(db)
 
-	nsqAddress, _ := conf.GetString("nsq", "nsqd-address")
+	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
 	glcd.GLCGameStateTopicName, _ = conf.GetString("nsq", "server-topic")
 
