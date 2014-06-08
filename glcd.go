@@ -7,6 +7,7 @@ import (
 	// "github.com/gamelost/bot3server/server"
 	nsq "github.com/gamelost/go-nsq"
 	// irc "github.com/gamelost/goirc/client"
+	ms "github.com/mitchellh/mapstructure"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"log"
@@ -23,10 +24,12 @@ const (
 var gamestateTopic = ""
 
 type Message struct {
+	Name       string
 	PlayerName string
 	ClientId   string
 	Type       string // better way to persist type info?
-	Data       string // Json Representation of any of the structs or strings or time.Time
+	Command    string
+	Data       interface{}
 }
 
 type ZoneInfo struct {
@@ -41,8 +44,8 @@ type Zone struct {
 }
 
 type PlayerState struct {
-	x int
-	y int
+	X float64 `mapstructure:"px"`
+	Y float64 `mapstructure:"py"`
 }
 
 type Heartbeat struct {
@@ -159,6 +162,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	// Spawn goroutine to clear out clients who don't send hearbeats
 	// anymore.
 	go glcd.CleanupClients()
+	go glcd.HandleHeartbeatChannel()
 
 	return nil
 }
@@ -166,6 +170,13 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 func (glcd *GLCD) Publish(msg *Message) {
 	encodedRequest, _ := json.Marshal(*msg)
 	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, encodedRequest)
+}
+
+func (glcd *GLCD) HandleHeartbeatChannel() {
+	for {
+		hb := <-glcd.HeartbeatChan
+		fmt.Printf("Received heartbeat: %v\n", hb)
+	}
 }
 
 func (glcd *GLCD) CleanupClients() error {
@@ -243,29 +254,42 @@ func (glcd *GLCD) UpdateZone(zone *Zone) {
 	}
 }
 
-func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
+func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 
-	msg := Message{}
+	// fmt.Println("-------")
+	// fmt.Printf("Received message %s\n\n", nsqMessage.Body)
+	// fmt.Println("-------")
+	msg := &Message{}
 
-	err := json.Unmarshal(message.Body, &msg)
+	err := json.Unmarshal(nsqMessage.Body, &msg)
 
 	if err != nil {
-		return fmt.Errorf("Not a JSON interface")
+		fmt.Printf(err.Error())
 	}
 
-	if msg.Type == "playerPassport" {
+	var dataMap map[string]interface{}
+	dataMap = msg.Data.(map[string]interface{})
+
+	if msg.Command == "playerPassport" {
 		//		HandlePassport(msg.Data)
-	} else if msg.Type == "playerState" {
-		//		HandlePlayerState(msg.Data)
-	} else if msg.Type == "zone" {
+	} else if msg.Command == "playerState" {
+		var ps PlayerState
+		//fmt.Printf("Data is: %v, %v\n", psmap["px"], psmap["py"])
+		err := ms.Decode(dataMap, &ps)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		fmt.Printf("Player state: %+v\n", ps)
+	} else if msg.Command == "zone" {
 		//		HandleZoneUpdate(msg.Data)
-	} else if msg.Type == "wall" {
+	} else if msg.Command == "wall" {
 		//		HandleWallMessage(msg.Data)
-	} else if msg.Type == "heartbeat" {
+	} else if msg.Command == "heartbeat" {
 		hb := &Heartbeat{}
-		json.Unmarshal([]byte(msg.Data), hb)
+		hb.ClientId = msg.Name
+		fmt.Printf("heartbeat: %+v", hb)
 		glcd.HeartbeatChan <- hb
-	} else if msg.Type == "error" {
+	} else if msg.Command == "error" {
 		//		HandleError(msg.Data)
 	} else {
 		// log.Printf("Unknown Message Type: %s", msg.Type)
