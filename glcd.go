@@ -43,6 +43,13 @@ type Zone struct {
 	State *ZoneInfo
 }
 
+type PlayerInfo struct {
+	Name     string
+	ClientId string
+}
+
+type Players []PlayerInfo
+
 type PlayerState struct {
 	X float64 `mapstructure:"px"`
 	Y float64 `mapstructure:"py"`
@@ -102,6 +109,7 @@ type GLCD struct {
 
 	// game state channels
 	HeartbeatChan chan *Heartbeat
+	KnockChan     chan *GLCClient
 
 	QuitChan chan os.Signal
 
@@ -138,6 +146,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 	// set up channels
 	glcd.HeartbeatChan = make(chan *Heartbeat)
+	glcd.KnockChan = make(chan *GLCClient)
 
 	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
@@ -163,6 +172,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	// anymore.
 	go glcd.CleanupClients()
 	go glcd.HandleHeartbeatChannel()
+	go glcd.HandleKnockChannel()
 
 	return nil
 }
@@ -308,6 +318,8 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 		hb := &Heartbeat{}
 		hb.ClientId = msg.Name
 		glcd.HeartbeatChan <- hb
+	} else if msg.Command == "knock" {
+		glcd.KnockChan <- glcd.Clients[msg.Name]
 	} else if msg.Command == "error" {
 		//		HandleError(msg.Data)
 	} else {
@@ -315,4 +327,20 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 	}
 
 	return nil
+}
+
+func (glcd *GLCD) HandleKnockChannel() error {
+	for {
+		client := <-glcd.KnockChan
+		fmt.Printf("Received knock from %s @ %s", client.Name, client.ClientId)
+		players := make(Players, len(glcd.Clients))
+
+		i := 0
+		for n, c := range glcd.Clients {
+			players[i] = PlayerInfo{Name: n, ClientId: c.ClientId}
+			i++
+		}
+
+		glcd.Publish(&Message{Name: client.Name, ClientId: client.ClientId, Type: "knock", Data: players})
+	}
 }
