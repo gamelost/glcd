@@ -175,7 +175,19 @@ func (glcd *GLCD) Publish(msg *Message) {
 func (glcd *GLCD) HandleHeartbeatChannel() {
 	for {
 		hb := <-glcd.HeartbeatChan
-		fmt.Printf("Received heartbeat: %v\n", hb)
+		fmt.Printf("HandleHeartbeatChannel: Received heartbeat: %+v\n", hb)
+
+		// see if key and client exists in the map
+		c, exists := glcd.Clients[hb.ClientId]
+
+		if exists {
+			fmt.Printf("Client %s exists.  Updating heartbeat.\n", hb.ClientId)
+			c.Heartbeat = time.Now()
+		} else {
+			fmt.Printf("Adding client %s to client list\n", hb.ClientId)
+			client := &GLCClient{ClientId: hb.ClientId, Heartbeat: time.Now()}
+			glcd.Clients[hb.ClientId] = client
+		}
 	}
 }
 
@@ -183,11 +195,15 @@ func (glcd *GLCD) CleanupClients() error {
 	for {
 		exp := time.Now().Unix()
 		<-time.After(time.Second * 10)
+		fmt.Println("Doing client clean up")
 		// Expire any clients who haven't sent a heartbeat in the last 10 seconds.
 		for k, v := range glcd.Clients {
 			if v.Heartbeat.Unix() < exp {
+				fmt.Printf("Deleting client %s due to inactivity.\n", v.ClientId)
 				delete(glcd.Clients, k)
 				//glcd.Publish(&Message{Type: "playerPassport", Data: PlayerPassport{Action: "playerGone"}}) // somehow add k to this
+			} else {
+				fmt.Printf("Client has not expired.")
 			}
 		}
 	}
@@ -268,7 +284,11 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 	}
 
 	var dataMap map[string]interface{}
-	dataMap = msg.Data.(map[string]interface{})
+	if msg.Data != nil {
+		dataMap = msg.Data.(map[string]interface{})
+	} else {
+		dataMap = make(map[string]interface{})
+	}
 
 	if msg.Command == "playerPassport" {
 		//		HandlePassport(msg.Data)
@@ -287,7 +307,6 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 	} else if msg.Command == "heartbeat" {
 		hb := &Heartbeat{}
 		hb.ClientId = msg.Name
-		fmt.Printf("heartbeat: %+v", hb)
 		glcd.HeartbeatChan <- hb
 	} else if msg.Command == "error" {
 		//		HandleError(msg.Data)
