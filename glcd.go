@@ -45,6 +45,11 @@ type PlayerState struct {
 	y int
 }
 
+type Heartbeat struct {
+	ClientId  string
+	Timestamp time.Time
+}
+
 /* Players coming in and out */
 type PlayerPassport struct {
 	Action string
@@ -54,8 +59,6 @@ type PlayerPassport struct {
 type ErrorMessage string
 
 type WallMessage string
-
-// type HeartbeatMessage time.Time  //eh?
 
 func main() {
 	// the quit channel
@@ -94,6 +97,9 @@ type GLCD struct {
 	GLCDaemonTopicChannel string
 	Clients               map[string]*GLCClient
 
+	// game state channels
+	HeartbeatChan chan *Heartbeat
+
 	QuitChan chan os.Signal
 
 	MongoSession *mgo.Session
@@ -127,6 +133,9 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 	glcd.MongoDB = glcd.MongoSession.DB(db)
 
+	// set up channels
+	glcd.HeartbeatChan = make(chan *Heartbeat)
+
 	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
 	glcd.GLCGameStateTopicName, _ = conf.GetString("nsq", "server-topic")
@@ -138,7 +147,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	glcd.NSQWriter = nsq.NewWriter(nsqdAddress)
 	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, []byte("{\"client\":\"server\"}"))
 
-	// set up listener for heartbeat from bot3server
+	// set up reader for glcdTopic
 	reader, err := nsq.NewReader(glcdTopic, "main")
 	if err != nil {
 		glcd.QuitChan <- syscall.SIGINT
@@ -167,7 +176,7 @@ func (glcd *GLCD) CleanupClients() error {
 		for k, v := range glcd.Clients {
 			if v.Heartbeat.Unix() < exp {
 				delete(glcd.Clients, k)
-				glcd.Publish(&Message{Type: "playerPassport", Data: PlayerPassport{Action: "playerGone"}}) // somehow add k to this
+				//glcd.Publish(&Message{Type: "playerPassport", Data: PlayerPassport{Action: "playerGone"}}) // somehow add k to this
 			}
 		}
 	}
@@ -185,7 +194,7 @@ func (glcd *GLCD) SendZones() {
 		err := q.All(&results)
 		if err == nil {
 			for _, res := range results {
-				glcd.Publish(&Message{Type: "zone", Data: res}) // dump res as a JSON string
+				glcd.Publish(&Message{Type: "zone", Data: res.(string)}) // dump res as a JSON string
 			}
 		} else {
 			glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Unable to fetch zones: %v", err)})
@@ -204,7 +213,7 @@ func (glcd *GLCD) SendZone(zone *Zone) {
 		var res interface{}
 		err := results.One(&res)
 		if err == nil {
-			glcd.Publish(&Message{Type: "zone", Data: res})
+			glcd.Publish(&Message{Type: "zone", Data: res.(string)})
 		} else {
 			glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Unable to fetch zone: %v", err)})
 		}
@@ -253,7 +262,9 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 	} else if msg.Type == "wall" {
 		//		HandleWallMessage(msg.Data)
 	} else if msg.Type == "heartbeat" {
-		//		HandleHeartbeat(msg.Data)
+		hb := &Heartbeat{}
+		json.Unmarshal([]byte(msg.Data), hb)
+		glcd.HeartbeatChan <- hb
 	} else if msg.Type == "error" {
 		//		HandleError(msg.Data)
 	} else {
