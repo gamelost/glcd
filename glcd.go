@@ -12,7 +12,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -20,6 +19,8 @@ import (
 const (
 	GLCD_CONFIG = "glcd.config"
 )
+
+var gamestateTopic = ""
 
 type Message map[string]interface{}
 
@@ -44,8 +45,6 @@ func main() {
 
 type GLCClient struct {
 	Name      string
-	Topic     string
-	Writer    *nsq.Writer
 	Heartbeat time.Time
 	Clientid  string
 	State     *Message // json representation of player state.
@@ -56,7 +55,8 @@ type GLCD struct {
 	Online     bool
 	ConfigFile *iniconf.ConfigFile
 
-	// NSQ input/output to bot3Server
+	// NSQ input/output
+	Writer    *nsq.Writer
 	GLCInput *nsq.Reader
 	Clients  map[string]*GLCClient
 
@@ -95,22 +95,21 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
 	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
-	serverTopic, _ := conf.GetString("nsq", "server-topic")
-	serverChannel, _ := conf.GetString("nsq", "server-channel")
+	gamestateTopic, _ = conf.GetString("nsq", "server-topic")
+	//gamestateChannel, _ := conf.GetString("nsq", "server-channel")
+	glcdTopic, _ := conf.GetString("nsq", "glcd-topic")
 
 	// Create the channel, by connecting to lookupd. (TODO; if it doesn't
 	// exist. Also do it the right way with a Register command?)
-	writer := nsq.NewWriter(nsqdAddress)
-	writer.Publish(serverTopic, []byte("{\"client\":\"server\"}"))
+	glcd.Writer = nsq.NewWriter(nsqdAddress)
+	glcd.Writer.Publish(gamestateTopic, []byte("{\"client\":\"server\"}"))
 
 	// set up listener for heartbeat from bot3server
-	reader, err := nsq.NewReader(serverTopic, serverChannel)
+	reader, err := nsq.NewReader(glcdTopic, "main")
 	if err != nil {
-		panic(err)
 		glcd.QuitChan <- syscall.SIGINT
 	}
 	glcd.GLCInput = reader
-
 	glcd.GLCInput.AddHandler(glcd)
 	glcd.GLCInput.ConnectToLookupd(lookupdAddress)
 
@@ -121,39 +120,9 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	return nil
 }
 
-func (cl *GLCClient) Publish(msg *Message) {
-	if cl.Writer == nil {
-		args := strings.SplitN(cl.Clientid, ":", 3)
-		if len(args) != 3 {
-			return
-		}
-		host, port, topic := args[0], args[1], args[2]
-		// log.Printf("cl.publish: Attempting to connect to '" + host + ":" + port + "'")
-		cl.Writer = nsq.NewWriter(host + ":" + port)
-		cl.Topic = topic
-	}
+func (glcd *GLCD) Publish(msg *Message) {
 	encodedRequest, _ := json.Marshal(*msg)
-	cl.Writer.Publish(cl.Topic, encodedRequest)
-}
-
-func (cl *GLCClient) SendCommand(command string, data *Message) {
-	msg := Message{}
-	msg["command"] = command
-	msg["data"] = data
-	cl.Publish(&msg)
-}
-
-func (cl *GLCClient) SendMessage(text string) {
-	cl.SendCommand("message", &Message{"data": text})
-}
-
-func (glcd *GLCD) SendCommandAll(command string, data *Message) {
-	msg := Message{}
-	msg["command"] = command
-	msg["data"] = data
-	for _, v := range glcd.Clients {
-		v.Publish(&msg)
-	}
+	glcd.Writer.Publish(gamestateTopic, encodedRequest)
 }
 
 func (glcd *GLCD) CleanupClients() error {
@@ -164,7 +133,7 @@ func (glcd *GLCD) CleanupClients() error {
 		for k, v := range glcd.Clients {
 			if v.Heartbeat.Unix() < exp {
 				delete(glcd.Clients, k)
-				glcd.SendCommandAll("playerGone", &Message{"client": k})
+				glcd.Publish(&Message{"playerGone": k})
 			}
 		}
 	}
@@ -176,16 +145,16 @@ func (glcd *GLCD) SendZones(cl *GLCClient) {
 	q := c.Find(nil)
 
 	if q == nil {
-		cl.SendMessage(fmt.Sprintf("No zones found"))
+		glcd.Publish(&Message{"error": fmt.Sprintf("No zones found")})
 	} else {
 		var results []interface{}
 		err := q.All(&results)
 		if err == nil {
 			for _, res := range results {
-				cl.SendCommand("updateZone", &Message{"data": res})
+				glcd.Publish(&Message{"updateZone": res})
 			}
 		} else {
-			cl.SendMessage(fmt.Sprintf("Unable to fetch zones: %v", err))
+			glcd.Publish(&Message{"error": fmt.Sprintf("Unable to fetch zones: %v", err)})
 		}
 	}
 }
@@ -196,14 +165,14 @@ func (glcd *GLCD) SendZone(cl *GLCClient, zone string) {
 	results := c.Find(query)
 
 	if results == nil {
-		cl.SendMessage(fmt.Sprintf("No such zone '%s'", zone))
+		glcd.Publish(&Message{"error": fmt.Sprintf("No such zone '%s'", zone)})
 	} else {
 		var res interface{}
 		err := results.One(&res)
 		if err == nil {
-			cl.SendCommand("updateZone", &Message{"data": res})
+			glcd.Publish(&Message{"updateZone": res})
 		} else {
-			cl.SendMessage(fmt.Sprintf("Unable to fetch zone: %v", err))
+			glcd.Publish(&Message{"error": fmt.Sprintf("Unable to fetch zone: %v", err)})
 		}
 	}
 }
@@ -225,13 +194,16 @@ func (glcd *GLCD) UpdateZone(cl *GLCClient, zone string, zdata interface{}) {
 	}
 
 	if err != nil {
-		cl.SendMessage(fmt.Sprintf("Unable to update zone: %v", err))
+		glcd.Publish(&Message{"error": fmt.Sprintf("Unable to update zone: %v", err)})
 	} else {
-		cl.SendMessage(fmt.Sprintf("Updated zone '%s'", zone))
+		glcd.Publish(&Message{"error": fmt.Sprintf("Updated zone '%s'", zone)})
 	}
 }
 
 func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
+
+	fmt.Println("In handlemessage")
+
 	msg := Message{}
 
 	err := json.Unmarshal(message.Body, &msg)
@@ -243,13 +215,15 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 	// If "client" is not in the JSON received, dump it.
 	cdata, ok := msg["client"]
 	if !ok {
-		return fmt.Errorf("No client provided")
+		fmt.Printf("No client provided")
+		return nil
 	}
 
 	// If "client" from JSON is
 	clientid, ok := cdata.(string)
 	if !ok {
-		return fmt.Errorf("Invalid format: client is not a string.")
+		fmt.Printf("Invalid format: client is not a string.")
+		return nil
 	}
 
 	// Ignore our silly "create a topic" message.
@@ -262,7 +236,7 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 	if !exists {
 		cl = &GLCClient{}
 		cl.Clientid = clientid
-		//glcd.Clients[clientid] = cl
+		glcd.Clients[clientid] = cl
 	}
 	cl.Heartbeat = time.Now()
 
@@ -282,13 +256,13 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 
 	switch command {
 	case "ping":
-		cl.Publish(&Message{"pong": fmt.Sprint(time.Now())})
+		//cl.Publish(&Message{"pong": fmt.Sprint(time.Now())})
 		break
 	case "playerState":
 		_, ok := msg["data"]
 		if ok {
 			cl.State = &msg
-			glcd.SendCommandAll("playerState", &msg)
+			glcd.Publish(&Message{"playerState": &msg})
 		}
 		break
 	case "updateZone":
@@ -346,13 +320,11 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 		glcd.SendZones(cl)
 		// Send all player states.
 		for _, v := range glcd.Clients {
-			cl.SendCommand("playerState", v.State)
+			glcd.Publish(&Message{"playerState": v.State})
 		}
 		break
 	case "wall":
-		for _, v := range glcd.Clients {
-			v.Publish(&msg)
-		}
+		glcd.Publish(&msg)
 	}
 	return nil
 }
