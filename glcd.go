@@ -20,7 +20,42 @@ const (
 	GLCD_CONFIG = "glcd.config"
 )
 
-type Message map[string]interface{}
+var gamestateTopic = ""
+
+type Message struct {
+	PlayerName string
+	ClientId   string
+	Type       string // better way to persist type info?
+	Data       string // Json Representation of any of the structs or strings or time.Time
+}
+
+type ZoneInfo struct {
+	x int
+	y int
+}
+
+type Zone struct {
+	Id    int
+	Name  string
+	State *ZoneInfo
+}
+
+type PlayerState struct {
+	x int
+	y int
+}
+
+/* Players coming in and out */
+type PlayerPassport struct {
+	Action string
+	Avatar string
+}
+
+type ErrorMessage string
+
+type WallMessage string
+
+// type HeartbeatMessage time.Time  //eh?
 
 func main() {
 	// the quit channel
@@ -42,9 +77,9 @@ func main() {
 
 type GLCClient struct {
 	Name      string
+	ClientId  string
+	State     *PlayerState
 	Heartbeat time.Time
-	Clientid  string
-	State     *Message // json representation of player state.
 }
 
 // struct type for Bot3
@@ -132,54 +167,54 @@ func (glcd *GLCD) CleanupClients() error {
 		for k, v := range glcd.Clients {
 			if v.Heartbeat.Unix() < exp {
 				delete(glcd.Clients, k)
-				glcd.Publish(&Message{"playerGone": k})
+				glcd.Publish(&Message{Type: "playerPassport", Data: PlayerPassport{Action: "playerGone"}}) // somehow add k to this
 			}
 		}
 	}
 }
 
 // Send a zone file update.
-func (glcd *GLCD) SendZones(cl *GLCClient) {
+func (glcd *GLCD) SendZones() {
 	c := glcd.MongoDB.C("zones")
 	q := c.Find(nil)
 
 	if q == nil {
-		glcd.Publish(&Message{"error": fmt.Sprintf("No zones found")})
+		glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("No zones found")})
 	} else {
 		var results []interface{}
 		err := q.All(&results)
 		if err == nil {
 			for _, res := range results {
-				glcd.Publish(&Message{"updateZone": res})
+				glcd.Publish(&Message{Type: "zone", Data: res}) // dump res as a JSON string
 			}
 		} else {
-			glcd.Publish(&Message{"error": fmt.Sprintf("Unable to fetch zones: %v", err)})
+			glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Unable to fetch zones: %v", err)})
 		}
 	}
 }
 
-func (glcd *GLCD) SendZone(cl *GLCClient, zone string) {
+func (glcd *GLCD) SendZone(zone *Zone) {
 	c := glcd.MongoDB.C("zones")
-	query := bson.M{"zone": zone}
+	query := bson.M{"zone": zone.Name}
 	results := c.Find(query)
 
 	if results == nil {
-		glcd.Publish(&Message{"error": fmt.Sprintf("No such zone '%s'", zone)})
+		glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("No such zone '%s'", zone.Name)})
 	} else {
 		var res interface{}
 		err := results.One(&res)
 		if err == nil {
-			glcd.Publish(&Message{"updateZone": res})
+			glcd.Publish(&Message{Type: "zone", Data: res})
 		} else {
-			glcd.Publish(&Message{"error": fmt.Sprintf("Unable to fetch zone: %v", err)})
+			glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Unable to fetch zone: %v", err)})
 		}
 	}
 }
 
 // Send a zone file update.
-func (glcd *GLCD) UpdateZone(cl *GLCClient, zone string, zdata interface{}) {
-	query := bson.M{"zone": zone}
-
+func (glcd *GLCD) UpdateZone(zone *Zone) {
+	query := bson.M{"zone": zone.Name}
+	zdata := ZoneInfo{}
 	c := glcd.MongoDB.C("zones")
 	val := bson.M{"type": "zone", "zdata": zdata, "timestamp": time.Now()}
 	change := bson.M{"$set": val}
@@ -193,9 +228,9 @@ func (glcd *GLCD) UpdateZone(cl *GLCClient, zone string, zdata interface{}) {
 	}
 
 	if err != nil {
-		glcd.Publish(&Message{"error": fmt.Sprintf("Unable to update zone: %v", err)})
+		glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Unable to update zone: %v", err)})
 	} else {
-		glcd.Publish(&Message{"error": fmt.Sprintf("Updated zone '%s'", zone)})
+		glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Updated zone '%s'", zone.Name)})
 	}
 }
 
@@ -209,119 +244,21 @@ func (glcd *GLCD) HandleMessage(message *nsq.Message) error {
 		return fmt.Errorf("Not a JSON interface")
 	}
 
-	// If "client" is not in the JSON received, dump it.
-	cdata, ok := msg["client"]
-	if !ok {
-		fmt.Printf("No client provided")
-		return nil
+	if msg.Type == "playerPassport" {
+		//		HandlePassport(msg.Data)
+	} else if msg.Type == "playerState" {
+		//		HandlePlayerState(msg.Data)
+	} else if msg.Type == "zone" {
+		//		HandleZoneUpdate(msg.Data)
+	} else if msg.Type == "wall" {
+		//		HandleWallMessage(msg.Data)
+	} else if msg.Type == "heartbeat" {
+		//		HandleHeartbeat(msg.Data)
+	} else if msg.Type == "error" {
+		//		HandleError(msg.Data)
+	} else {
+		// log.Printf("Unknown Message Type: %s", msg.Type)
 	}
 
-	// If "client" from JSON is
-	clientid, ok := cdata.(string)
-	if !ok {
-		fmt.Printf("Invalid format: client is not a string.")
-		return nil
-	}
-
-	// Ignore our silly "create a topic" message.
-	if clientid == "server" {
-		return nil
-	}
-
-	// Make sure client exists in glcd.Clients
-	cl, exists := glcd.Clients[clientid]
-	if !exists {
-		cl = &GLCClient{}
-		cl.Clientid = clientid
-		glcd.Clients[clientid] = cl
-	}
-	cl.Heartbeat = time.Now()
-
-	// Now perform the client's action.
-	cmddata, ok := msg["command"]
-	if !ok {
-		// Lacking a command is okay - It's a heartbeat.
-		return nil
-	}
-
-	// If "client" from JSON is
-	command, ok := cmddata.(string)
-	if !ok {
-		return fmt.Errorf("Invalid format: command is not a string.")
-	}
-	// log.Printf("We got a command: ", command)
-
-	switch command {
-	case "ping":
-		//cl.Publish(&Message{"pong": fmt.Sprint(time.Now())})
-		break
-	case "playerState":
-		_, ok := msg["data"]
-		if ok {
-			cl.State = &msg
-			glcd.Publish(&Message{"playerState": &msg})
-		}
-		break
-	case "updateZone":
-		args, ok := msg["data"]
-		if !ok {
-			break
-		}
-		margs, ok := args.(Message)
-		if !ok {
-			break
-		}
-		zonei, ok := margs["zone"]
-		if !ok {
-			break
-		}
-		zone, ok := zonei.(string)
-		if !ok {
-			break
-		}
-
-		zdata, ok := margs["data"]
-		if !ok {
-			break
-		}
-
-		glcd.UpdateZone(cl, zone, zdata)
-	case "sendZone":
-		args, ok := msg["data"]
-		if !ok {
-			log.Printf("No data in sendZone")
-			break
-		}
-		log.Println("data:")
-		log.Println(args)
-		margs, ok := args.(map[string]interface{})
-		if !ok {
-			log.Printf("args is not a message in sendZone")
-			break
-		}
-		zonei, ok := margs["zone"]
-		if !ok {
-			log.Printf("No zone in sendZone")
-			break
-		}
-		zone, ok := zonei.(string)
-		if !ok {
-			log.Printf("Zone is not a string in sendZone")
-			break
-		}
-
-		glcd.SendZone(cl, zone)
-		break
-	case "connected":
-		// Send all Zones
-		glcd.SendZones(cl)
-		// Send all player states.
-		for _, v := range glcd.Clients {
-			glcd.Publish(&Message{"playerState": v.State})
-		}
-		break
-	case "wall":
-		glcd.Publish(&msg)
-	}
 	return nil
 }
