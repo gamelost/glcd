@@ -10,7 +10,6 @@ import (
 	// "github.com/gamelost/bot3server/server"
 	nsq "github.com/gamelost/go-nsq"
 	// irc "github.com/gamelost/goirc/client"
-	ms "github.com/mitchellh/mapstructure"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"log"
@@ -23,63 +22,6 @@ import (
 const (
 	GLCD_CONFIG = "glcd.config"
 )
-
-var gamestateTopic = ""
-
-type Message struct {
-	ClientId string
-	Type     string // better way to persist type info?
-	Data     interface{}
-}
-
-type ZoneInfo struct {
-	x int
-	y int
-}
-
-type Zone struct {
-	Id    int
-	Name  string
-	State *ZoneInfo
-}
-
-type PlayerInfo struct {
-	Name     string
-	ClientId string
-}
-
-type Players []PlayerInfo
-
-type PlayerState struct {
-	ClientId string
-	X        float64
-	Y        float64
-	AvatarId string `json:",omitempty"`
-	AvatarState int64 `json:",omitempty"`
-}
-
-type PlayerAuthInfo struct {
-	Name     string `bson:"user"`
-	Password string `bson:"password"`
-}
-
-type Heartbeat struct {
-	ClientId  string
-	Timestamp time.Time
-}
-
-/* Players coming in and out */
-type PlayerPassport struct {
-	Action string
-	Avatar string
-}
-
-type ErrorMessage string
-
-type ChatMessage struct {
-	Sender  string
-	Message string
-}
 
 func main() {
 	// the quit channel
@@ -139,32 +81,10 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	glcd.Clients = map[string]*GLCClient{}
 
 	// Connect to Mongo.
-	servers, err := glcd.ConfigFile.GetString("mongo", "servers")
-
-	if err != nil {
-		return fmt.Errorf("Mongo: No server configured.")
-	}
-
-	glcd.MongoSession, err = mgo.Dial(servers)
-
-	if err != nil {
-	}
-
-	db, err := glcd.ConfigFile.GetString("mongo", "db")
-
-	if err != nil {
-		return fmt.Errorf("Mongo: No database configured.")
-	} else {
-		fmt.Println("Successfully obtained config from mongo")
-	}
-
-	glcd.MongoDB = glcd.MongoSession.DB(db)
+	glcd.setupMongoDBConnection()
 
 	// set up channels
-	glcd.HeartbeatChan = make(chan *Heartbeat)
-	glcd.KnockChan = make(chan *GLCClient)
-	glcd.AuthChan = make(chan *PlayerAuthInfo)
-	glcd.PlayerStateChan = make(chan *PlayerState)
+	glcd.setupTopicChannels()
 
 	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
@@ -196,51 +116,41 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	return nil
 }
 
+func (glcd *GLCD) setupTopicChannels() {
+	// set up channels
+	glcd.HeartbeatChan = make(chan *Heartbeat)
+	glcd.KnockChan = make(chan *GLCClient)
+	glcd.AuthChan = make(chan *PlayerAuthInfo)
+	glcd.PlayerStateChan = make(chan *PlayerState)
+}
+
+func (glcd *GLCD) setupMongoDBConnection() error {
+
+	// Connect to Mongo.
+	servers, err := glcd.ConfigFile.GetString("mongo", "servers")
+	if err != nil {
+		return err
+	}
+
+	glcd.MongoSession, err = mgo.Dial(servers)
+	if err != nil {
+		return err
+	}
+
+	db, err := glcd.ConfigFile.GetString("mongo", "db")
+	if err != nil {
+		return err
+	} else {
+		fmt.Println("Successfully obtained config from mongo")
+	}
+
+	glcd.MongoDB = glcd.MongoSession.DB(db)
+	return nil
+}
+
 func (glcd *GLCD) Publish(msg *Message) {
 	encodedRequest, _ := json.Marshal(*msg)
 	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, encodedRequest)
-}
-
-func (glcd *GLCD) HandlePlayerStateChannel() {
-	for {
-		ps := <-glcd.PlayerStateChan
-		glcd.Publish(&Message{Type: "playerState", Data: ps})
-	}
-}
-
-func (glcd *GLCD) HandleHeartbeatChannel() {
-	for {
-		hb := <-glcd.HeartbeatChan
-		//fmt.Printf("HandleHeartbeatChannel: Received heartbeat: %+v\n", hb)
-
-		// see if key and client exists in the map
-		c, exists := glcd.Clients[hb.ClientId]
-
-		if exists {
-			//fmt.Printf("Client %s exists.  Updating heartbeat.\n", hb.ClientId)
-			c.Heartbeat = time.Now()
-		} else {
-			//fmt.Printf("Adding client %s to client list\n", hb.ClientId)
-			client := &GLCClient{ClientId: hb.ClientId, Heartbeat: time.Now(), Authenticated: false}
-			glcd.Clients[hb.ClientId] = client
-		}
-	}
-}
-
-func (glcd *GLCD) HandleKnockChannel() error {
-	for {
-		client := <-glcd.KnockChan
-		fmt.Printf("Received knock from %s\n", client.ClientId)
-		players := make(Players, len(glcd.Clients))
-
-		i := 0
-		for _, c := range glcd.Clients {
-			players[i] = PlayerInfo{ClientId: c.ClientId}
-			i++
-		}
-
-		glcd.Publish(&Message{ClientId: client.ClientId, Type: "knock", Data: players})
-	}
 }
 
 func (glcd *GLCD) CleanupClients() error {
@@ -282,10 +192,6 @@ func (glcd *GLCD) SendZones() {
 			glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Unable to fetch zones: %v", err)})
 		}
 	}
-}
-
-func (glcd *GLCD) HandleChatMessage(msg *Message, data interface{}) {
-	glcd.Publish(msg)
 }
 
 func (glcd *GLCD) SendZone(zone *Zone) {
@@ -356,44 +262,22 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 		return nil
 	}
 
-	if msg.Type == "playerPassport" {
-		//		HandlePassport(msg.Data)
-	} else if msg.Type == "playerState" {
-		var ps PlayerState
-		err := ms.Decode(dataMap, &ps)
-		if err != nil {
-			fmt.Println(err.Error())
-		} else {
-			ps.ClientId = msg.ClientId
-			log.Printf("Player state: %+v\n", ps)
-			glcd.PlayerStateChan <- &ps
-		}
+	// UNIMPLEMENTED TYPES: playerPassport, sendZones, error
+	// add new/future handler functions in glcd-handlers.go
+	if msg.Type == "playerState" {
+		glcd.HandlePlayerState(msg, dataMap)
 	} else if msg.Type == "connected" {
-		fmt.Println("Received connected from client")
-		glcd.SendZones()
-	} else if msg.Type == "sendZones" {
-		fmt.Println("Received sendZones from client")
-		//		HandleZoneUpdate(msg.Data)
+		glcd.HandleConnected(msg, dataMap)
 	} else if msg.Type == "chat" {
-		glcd.HandleChatMessage(msg, msg.Data)
+		glcd.HandleChat(msg, msg.Data)
 	} else if msg.Type == "heartbeat" {
-		hb := &Heartbeat{}
-		hb.ClientId = msg.ClientId
-		glcd.HeartbeatChan <- hb
+		glcd.HandleHeartbeat(msg, dataMap)
 	} else if msg.Type == "knock" {
-		glcd.KnockChan <- glcd.Clients[msg.ClientId]
+		glcd.HandleKnock(msg, dataMap)
 	} else if msg.Type == "playerAuth" {
-		var pai PlayerAuthInfo
-		err := ms.Decode(dataMap, &pai)
-		if err != nil {
-			fmt.Println(err.Error())
-		} else {
-			glcd.AuthChan <- &pai
-		}
-	} else if msg.Type == "error" {
-		//		HandleError(msg.Data)
+		glcd.HandlePlayerAuth(msg, dataMap)
 	} else {
-		// log.Printf("Unknown Message Type: %s", msg.Type)
+		fmt.Printf("Unable to determine handler for message: %+v\n", msg)
 	}
 
 	return nil
@@ -440,32 +324,4 @@ func (glcd *GLCD) isPasswordCorrectWithHash(name string, password string, salt [
 	actualHash.Write([]byte(password))
 
 	return bytes.Equal(actualHash.Sum(nil), expectedHash[32:]), nil
-}
-
-func (glcd *GLCD) HandlePlayerAuthChannel() error {
-	for {
-		authInfo := <-glcd.AuthChan
-		fmt.Printf("Received auth for user %s\n", authInfo.Name)
-
-		_, ok := glcd.Clients[authInfo.Name]
-
-		if ok {
-			authed, err := glcd.isPasswordCorrect(authInfo.Name, authInfo.Password)
-
-			if err != nil {
-				fmt.Printf("User %s %s\n", authInfo.Name, err)
-			}
-
-			if authed {
-				fmt.Printf("Auth successful for user %s\n", authInfo.Name)
-				// ALLOW PLAYERS DO ANYTHING
-				// UPDATE glcd.Clients.AUthenticated = true
-				glcd.Clients[authInfo.Name].Authenticated = true
-			} else {
-				fmt.Printf("Auth failed for user %s\n", authInfo.Name)
-			}
-		} else {
-			fmt.Printf("User %s does not exist!\n", authInfo.Name)
-		}
-	}
 }
