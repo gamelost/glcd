@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	iniconf "code.google.com/p/goconf/conf"
+	"crypto/sha512"
 	"encoding/json"
+	"errors"
 	"fmt"
 	// "github.com/gamelost/bot3server/server"
 	nsq "github.com/gamelost/go-nsq"
@@ -24,9 +27,9 @@ const (
 var gamestateTopic = ""
 
 type Message struct {
-	ClientId   string
-	Type       string // better way to persist type info?
-	Data       interface{}
+	ClientId string
+	Type     string // better way to persist type info?
+	Data     interface{}
 }
 
 type ZoneInfo struct {
@@ -54,6 +57,11 @@ type PlayerState struct {
 	AvatarId string `json:",omitempty"`
 }
 
+type PlayerAuthInfo struct {
+	Name     string `bson:"user"`
+	Password string `bson:"password"`
+}
+
 type Heartbeat struct {
 	ClientId  string
 	Timestamp time.Time
@@ -68,7 +76,7 @@ type PlayerPassport struct {
 type ErrorMessage string
 
 type ChatMessage struct {
-	Sender string
+	Sender  string
 	Message string
 }
 
@@ -91,9 +99,11 @@ func main() {
 }
 
 type GLCClient struct {
-	ClientId  string
-	State     *PlayerState
-	Heartbeat time.Time
+	Name          string
+	ClientId      string
+	Authenticated bool
+	State         *PlayerState
+	Heartbeat     time.Time
 }
 
 // struct type for Bot3
@@ -111,6 +121,7 @@ type GLCD struct {
 	// game state channels
 	HeartbeatChan   chan *Heartbeat
 	KnockChan       chan *GLCClient
+	AuthChan        chan *PlayerAuthInfo
 	PlayerStateChan chan *PlayerState
 
 	QuitChan chan os.Signal
@@ -151,6 +162,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	// set up channels
 	glcd.HeartbeatChan = make(chan *Heartbeat)
 	glcd.KnockChan = make(chan *GLCClient)
+	glcd.AuthChan = make(chan *PlayerAuthInfo)
 	glcd.PlayerStateChan = make(chan *PlayerState)
 
 	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
@@ -175,6 +187,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 	// goroutines to handle concurrent events
 	go glcd.CleanupClients()
+	go glcd.HandlePlayerAuthChannel()
 	go glcd.HandleHeartbeatChannel()
 	go glcd.HandleKnockChannel()
 	go glcd.HandlePlayerStateChannel()
@@ -207,7 +220,7 @@ func (glcd *GLCD) HandleHeartbeatChannel() {
 			c.Heartbeat = time.Now()
 		} else {
 			//fmt.Printf("Adding client %s to client list\n", hb.ClientId)
-			client := &GLCClient{ClientId: hb.ClientId, Heartbeat: time.Now()}
+			client := &GLCClient{ClientId: hb.ClientId, Heartbeat: time.Now(), Authenticated: false}
 			glcd.Clients[hb.ClientId] = client
 		}
 	}
@@ -216,7 +229,7 @@ func (glcd *GLCD) HandleHeartbeatChannel() {
 func (glcd *GLCD) HandleKnockChannel() error {
 	for {
 		client := <-glcd.KnockChan
-		fmt.Printf("Received knock from %s", client.ClientId)
+		fmt.Printf("Received knock from %s\n", client.ClientId)
 		players := make(Players, len(glcd.Clients))
 
 		i := 0
@@ -368,6 +381,14 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 		glcd.HeartbeatChan <- hb
 	} else if msg.Type == "knock" {
 		glcd.KnockChan <- glcd.Clients[msg.ClientId]
+	} else if msg.Type == "playerAuth" {
+		var pai PlayerAuthInfo
+		err := ms.Decode(dataMap, &pai)
+		if err != nil {
+			fmt.Println(err.Error())
+		} else {
+			glcd.AuthChan <- &pai
+		}
 	} else if msg.Type == "error" {
 		//		HandleError(msg.Data)
 	} else {
@@ -375,4 +396,75 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 	}
 
 	return nil
+}
+
+func (glcd *GLCD) isPasswordCorrect(name string, password string) (bool, error) {
+	c := glcd.MongoDB.C("users")
+	authInfo := PlayerAuthInfo{}
+	query := bson.M{"user": name}
+	err := c.Find(query).One(&authInfo)
+
+	if err != nil {
+		return false, err
+	}
+
+	return password == authInfo.Password, nil
+}
+
+func generateSaltedPasswordHash(password string, salt []byte) ([]byte, error) {
+	hash := sha512.New()
+	//hash.Write(server_salt)
+	hash.Write(salt)
+	hash.Write([]byte(password))
+	return hash.Sum(salt), nil
+}
+
+func (glcd *GLCD) getUserPasswordHash(name string) ([]byte, error) {
+	return nil, nil
+}
+
+func (glcd *GLCD) isPasswordCorrectWithHash(name string, password string, salt []byte) (bool, error) {
+	expectedHash, err := glcd.getUserPasswordHash(name)
+
+	if err != nil {
+		return false, err
+	}
+
+	if len(expectedHash) != 32+sha512.Size {
+		return false, errors.New("Wrong size")
+	}
+
+	actualHash := sha512.New()
+	actualHash.Write(salt)
+	actualHash.Write([]byte(password))
+
+	return bytes.Equal(actualHash.Sum(nil), expectedHash[32:]), nil
+}
+
+func (glcd *GLCD) HandlePlayerAuthChannel() error {
+	for {
+		authInfo := <-glcd.AuthChan
+		fmt.Printf("Received auth for user %s\n", authInfo.Name)
+
+		_, ok := glcd.Clients[authInfo.Name]
+
+		if ok {
+			authed, err := glcd.isPasswordCorrect(authInfo.Name, authInfo.Password)
+
+			if err != nil {
+				fmt.Printf("User %s %s\n", authInfo.Name, err)
+			}
+
+			if authed {
+				fmt.Printf("Auth successful for user %s\n", authInfo.Name)
+				// ALLOW PLAYERS DO ANYTHING
+				// UPDATE glcd.Clients.AUthenticated = true
+				glcd.Clients[authInfo.Name].Authenticated = true
+			} else {
+				fmt.Printf("Auth failed for user %s\n", authInfo.Name)
+			}
+		} else {
+			fmt.Printf("User %s does not exist!\n", authInfo.Name)
+		}
+	}
 }
