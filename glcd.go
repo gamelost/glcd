@@ -24,11 +24,8 @@ const (
 var gamestateTopic = ""
 
 type Message struct {
-	Name       string
-	PlayerName string
 	ClientId   string
 	Type       string // better way to persist type info?
-	Command    string
 	Data       interface{}
 }
 
@@ -70,7 +67,10 @@ type PlayerPassport struct {
 
 type ErrorMessage string
 
-type WallMessage string
+type ChatMessage struct {
+	Sender string
+	Message string
+}
 
 func main() {
 	// the quit channel
@@ -91,7 +91,6 @@ func main() {
 }
 
 type GLCClient struct {
-	Name      string
 	ClientId  string
 	State     *PlayerState
 	Heartbeat time.Time
@@ -217,16 +216,16 @@ func (glcd *GLCD) HandleHeartbeatChannel() {
 func (glcd *GLCD) HandleKnockChannel() error {
 	for {
 		client := <-glcd.KnockChan
-		fmt.Printf("Received knock from %s @ %s", client.Name, client.ClientId)
+		fmt.Printf("Received knock from %s", client.ClientId)
 		players := make(Players, len(glcd.Clients))
 
 		i := 0
-		for n, c := range glcd.Clients {
-			players[i] = PlayerInfo{Name: n, ClientId: c.ClientId}
+		for _, c := range glcd.Clients {
+			players[i] = PlayerInfo{ClientId: c.ClientId}
 			i++
 		}
 
-		glcd.Publish(&Message{Name: client.Name, ClientId: client.ClientId, Type: "knock", Data: players})
+		glcd.Publish(&Message{ClientId: client.ClientId, Type: "knock", Data: players})
 	}
 }
 
@@ -269,6 +268,10 @@ func (glcd *GLCD) SendZones() {
 			glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Unable to fetch zones: %v", err)})
 		}
 	}
+}
+
+func (glcd *GLCD) HandleChatMessage(msg *Message, data interface{}) {
+	glcd.Publish(msg)
 }
 
 func (glcd *GLCD) SendZone(zone *Zone) {
@@ -339,32 +342,33 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 		return nil
 	}
 
-	if msg.Command == "playerPassport" {
+	if msg.Type == "playerPassport" {
 		//		HandlePassport(msg.Data)
-	} else if msg.Command == "playerState" {
+	} else if msg.Type == "playerState" {
 		var ps PlayerState
 		err := ms.Decode(dataMap, &ps)
 		if err != nil {
 			fmt.Println(err.Error())
+		} else {
+			ps.ClientId = msg.ClientId
+			log.Printf("Player state: %+v\n", ps)
+			glcd.PlayerStateChan <- &ps
 		}
-		ps.ClientId = msg.Name
-		fmt.Printf("Player state: %+v\n", ps)
-		glcd.PlayerStateChan <- &ps
-	} else if msg.Command == "connected" {
+	} else if msg.Type == "connected" {
 		fmt.Println("Received connected from client")
 		glcd.SendZones()
-	} else if msg.Command == "sendZones" {
+	} else if msg.Type == "sendZones" {
 		fmt.Println("Received sendZones from client")
 		//		HandleZoneUpdate(msg.Data)
-	} else if msg.Command == "wall" {
-		//		HandleWallMessage(msg.Data)
-	} else if msg.Command == "heartbeat" {
+	} else if msg.Type == "chat" {
+		glcd.HandleChatMessage(msg, msg.Data)
+	} else if msg.Type == "heartbeat" {
 		hb := &Heartbeat{}
-		hb.ClientId = msg.Name
+		hb.ClientId = msg.ClientId
 		glcd.HeartbeatChan <- hb
-	} else if msg.Command == "knock" {
-		glcd.KnockChan <- glcd.Clients[msg.Name]
-	} else if msg.Command == "error" {
+	} else if msg.Type == "knock" {
+		glcd.KnockChan <- glcd.Clients[msg.ClientId]
+	} else if msg.Type == "error" {
 		//		HandleError(msg.Data)
 	} else {
 		// log.Printf("Unknown Message Type: %s", msg.Type)
