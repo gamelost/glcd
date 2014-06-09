@@ -55,6 +55,7 @@ type PlayerState struct {
 	X        float64
 	Y        float64
 	AvatarId string `json:",omitempty"`
+	AvatarState int64 `json:",omitempty"`
 }
 
 type PlayerAuthInfo struct {
