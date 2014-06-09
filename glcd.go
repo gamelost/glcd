@@ -52,8 +52,9 @@ type Players []PlayerInfo
 
 type PlayerState struct {
 	ClientId string
-	X        float64 `mapstructure:"px"`
-	Y        float64 `mapstructure:"py"`
+	X        float64
+	Y        float64
+	AvatarId string `json:",omitempty"`
 }
 
 type Heartbeat struct {
@@ -325,10 +326,17 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 	}
 
 	var dataMap map[string]interface{}
+	var ok bool
+
 	if msg.Data != nil {
-		dataMap = msg.Data.(map[string]interface{})
+		dataMap, ok = msg.Data.(map[string]interface{})
 	} else {
 		dataMap = make(map[string]interface{})
+		ok = true
+	}
+
+	if !ok {
+		return nil
 	}
 
 	if msg.Command == "playerPassport" {
