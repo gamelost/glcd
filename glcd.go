@@ -51,8 +51,9 @@ type PlayerInfo struct {
 type Players []PlayerInfo
 
 type PlayerState struct {
-	X float64 `mapstructure:"px"`
-	Y float64 `mapstructure:"py"`
+	ClientId string
+	X        float64 `mapstructure:"px"`
+	Y        float64 `mapstructure:"py"`
 }
 
 type Heartbeat struct {
@@ -108,8 +109,9 @@ type GLCD struct {
 	Clients               map[string]*GLCClient
 
 	// game state channels
-	HeartbeatChan chan *Heartbeat
-	KnockChan     chan *GLCClient
+	HeartbeatChan   chan *Heartbeat
+	KnockChan       chan *GLCClient
+	PlayerStateChan chan *PlayerState
 
 	QuitChan chan os.Signal
 
@@ -140,6 +142,8 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 
 	if err != nil {
 		return fmt.Errorf("Mongo: No database configured.")
+	} else {
+		fmt.Println("Successfully obtained config from mongo")
 	}
 
 	glcd.MongoDB = glcd.MongoSession.DB(db)
@@ -147,6 +151,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	// set up channels
 	glcd.HeartbeatChan = make(chan *Heartbeat)
 	glcd.KnockChan = make(chan *GLCClient)
+	glcd.PlayerStateChan = make(chan *PlayerState)
 
 	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
 	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
@@ -168,11 +173,11 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	glcd.GLCDaemonTopic.AddHandler(glcd)
 	glcd.GLCDaemonTopic.ConnectToLookupd(lookupdAddress)
 
-	// Spawn goroutine to clear out clients who don't send hearbeats
-	// anymore.
+	// goroutines to handle concurrent events
 	go glcd.CleanupClients()
 	go glcd.HandleHeartbeatChannel()
 	go glcd.HandleKnockChannel()
+	go glcd.HandlePlayerStateChannel()
 
 	return nil
 }
@@ -182,22 +187,45 @@ func (glcd *GLCD) Publish(msg *Message) {
 	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, encodedRequest)
 }
 
+func (glcd *GLCD) HandlePlayerStateChannel() {
+	for {
+		ps := <-glcd.PlayerStateChan
+		glcd.Publish(&Message{Type: "playerState", Data: ps})
+	}
+}
+
 func (glcd *GLCD) HandleHeartbeatChannel() {
 	for {
 		hb := <-glcd.HeartbeatChan
-		fmt.Printf("HandleHeartbeatChannel: Received heartbeat: %+v\n", hb)
+		//fmt.Printf("HandleHeartbeatChannel: Received heartbeat: %+v\n", hb)
 
 		// see if key and client exists in the map
 		c, exists := glcd.Clients[hb.ClientId]
 
 		if exists {
-			fmt.Printf("Client %s exists.  Updating heartbeat.\n", hb.ClientId)
+			//fmt.Printf("Client %s exists.  Updating heartbeat.\n", hb.ClientId)
 			c.Heartbeat = time.Now()
 		} else {
-			fmt.Printf("Adding client %s to client list\n", hb.ClientId)
+			//fmt.Printf("Adding client %s to client list\n", hb.ClientId)
 			client := &GLCClient{ClientId: hb.ClientId, Heartbeat: time.Now()}
 			glcd.Clients[hb.ClientId] = client
 		}
+	}
+}
+
+func (glcd *GLCD) HandleKnockChannel() error {
+	for {
+		client := <-glcd.KnockChan
+		fmt.Printf("Received knock from %s @ %s", client.Name, client.ClientId)
+		players := make(Players, len(glcd.Clients))
+
+		i := 0
+		for n, c := range glcd.Clients {
+			players[i] = PlayerInfo{Name: n, ClientId: c.ClientId}
+			i++
+		}
+
+		glcd.Publish(&Message{Name: client.Name, ClientId: client.ClientId, Type: "knock", Data: players})
 	}
 }
 
@@ -205,7 +233,7 @@ func (glcd *GLCD) CleanupClients() error {
 	for {
 		exp := time.Now().Unix()
 		<-time.After(time.Second * 10)
-		fmt.Println("Doing client clean up")
+		//fmt.Println("Doing client clean up")
 		// Expire any clients who haven't sent a heartbeat in the last 10 seconds.
 		for k, v := range glcd.Clients {
 			if v.Heartbeat.Unix() < exp {
@@ -213,7 +241,7 @@ func (glcd *GLCD) CleanupClients() error {
 				delete(glcd.Clients, k)
 				//glcd.Publish(&Message{Type: "playerPassport", Data: PlayerPassport{Action: "playerGone"}}) // somehow add k to this
 			} else {
-				fmt.Printf("Client has not expired.")
+				//fmt.Printf("Client has not expired.")
 			}
 		}
 	}
@@ -221,17 +249,20 @@ func (glcd *GLCD) CleanupClients() error {
 
 // Send a zone file update.
 func (glcd *GLCD) SendZones() {
+	fmt.Println("SendZones --")
 	c := glcd.MongoDB.C("zones")
 	q := c.Find(nil)
 
 	if q == nil {
 		glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("No zones found")})
 	} else {
+		fmt.Println("Publishing zones to clients")
 		var results []interface{}
 		err := q.All(&results)
 		if err == nil {
 			for _, res := range results {
-				glcd.Publish(&Message{Type: "zone", Data: res.(string)}) // dump res as a JSON string
+				fmt.Printf("Res: is %+v", res)
+				glcd.Publish(&Message{Type: "updateZone", Data: res.(bson.M)}) // dump res as a JSON string
 			}
 		} else {
 			glcd.Publish(&Message{Type: "error", Data: fmt.Sprintf("Unable to fetch zones: %v", err)})
@@ -304,13 +335,18 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 		//		HandlePassport(msg.Data)
 	} else if msg.Command == "playerState" {
 		var ps PlayerState
-		//fmt.Printf("Data is: %v, %v\n", psmap["px"], psmap["py"])
 		err := ms.Decode(dataMap, &ps)
 		if err != nil {
 			fmt.Println(err.Error())
 		}
+		ps.ClientId = msg.Name
 		fmt.Printf("Player state: %+v\n", ps)
-	} else if msg.Command == "zone" {
+		glcd.PlayerStateChan <- &ps
+	} else if msg.Command == "connected" {
+		fmt.Println("Received connected from client")
+		glcd.SendZones()
+	} else if msg.Command == "sendZones" {
+		fmt.Println("Received sendZones from client")
 		//		HandleZoneUpdate(msg.Data)
 	} else if msg.Command == "wall" {
 		//		HandleWallMessage(msg.Data)
@@ -327,20 +363,4 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 	}
 
 	return nil
-}
-
-func (glcd *GLCD) HandleKnockChannel() error {
-	for {
-		client := <-glcd.KnockChan
-		fmt.Printf("Received knock from %s @ %s", client.Name, client.ClientId)
-		players := make(Players, len(glcd.Clients))
-
-		i := 0
-		for n, c := range glcd.Clients {
-			players[i] = PlayerInfo{Name: n, ClientId: c.ClientId}
-			i++
-		}
-
-		glcd.Publish(&Message{Name: client.Name, ClientId: client.ClientId, Type: "knock", Data: players})
-	}
 }
