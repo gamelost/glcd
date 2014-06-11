@@ -30,6 +30,7 @@ type Players []PlayerInfo
 
 type PlayerState struct {
 	ClientId    string
+	Name        string `json:",omitempty"`
 	X           float64
 	Y           float64
 	AvatarId    string `json:",omitempty"`
