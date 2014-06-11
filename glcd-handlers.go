@@ -4,6 +4,7 @@ import (
 	"fmt"
 	ms "github.com/mitchellh/mapstructure"
 	"time"
+	"log"
 )
 
 func (glcd *GLCD) HandleHeartbeat(msg *Message, dataMap map[string]interface{}) {
@@ -26,7 +27,15 @@ func (glcd *GLCD) HandlePlayerAuth(msg *Message, dataMap map[string]interface{})
 	}
 }
 
-func (glcd *GLCD) HandleChat(msg *Message, data interface{}) {
+func (glcd *GLCD) HandleChat(msg *Message, dataMap map[string]interface{}) {
+	var cm ChatMessage
+	err := ms.Decode(dataMap, &cm)
+	if err == nil {
+		log.Printf("Sending to IRC?")
+		glcd.SendToIRC(fmt.Sprintf("GLCD: %s says, '%s'", cm.Sender, cm.Message))
+	} else {
+		log.Printf("Unable to convert to ChatMessage?\n")
+	}
 	glcd.Publish(msg)
 }
 

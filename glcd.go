@@ -7,9 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	// "github.com/gamelost/bot3server/server"
 	nsq "github.com/gamelost/go-nsq"
-	// irc "github.com/gamelost/goirc/client"
+	b3s "github.com/gamelost/bot3server/server"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"log"
@@ -61,6 +60,12 @@ type GLCD struct {
 	GLCDaemonTopicChannel string
 	Clients               map[string]*GLCClient
 
+	// Bot3Server for IRC
+	B3SIdentifier   string
+	B3STopic        string
+	B3SChannel      string
+	IRCChan		chan string
+
 	// game state channels
 	HeartbeatChan   chan *Heartbeat
 	KnockChan       chan *GLCClient
@@ -97,6 +102,11 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	glcd.NSQWriter = nsq.NewWriter(nsqdAddress)
 	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, []byte("{\"client\":\"server\"}"))
 
+	// Configure SendToIRC
+	glcd.B3SIdentifier, _ = conf.GetString("bot3server", "magic-identifier")
+	glcd.B3STopic, _      = conf.GetString("bot3server", "topic")
+	glcd.B3SChannel, _    = conf.GetString("bot3server", "channel")
+
 	// set up reader for glcdTopic
 	reader, err := nsq.NewReader(glcdTopic, "main")
 	if err != nil {
@@ -112,6 +122,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	go glcd.HandleHeartbeatChannel()
 	go glcd.HandleKnockChannel()
 	go glcd.HandlePlayerStateChannel()
+	go glcd.HandleIRCChannel()
 
 	return nil
 }
@@ -122,6 +133,7 @@ func (glcd *GLCD) setupTopicChannels() {
 	glcd.KnockChan = make(chan *GLCClient)
 	glcd.AuthChan = make(chan *PlayerAuthInfo)
 	glcd.PlayerStateChan = make(chan *PlayerState)
+	glcd.IRCChan = make(chan string)
 }
 
 func (glcd *GLCD) setupMongoDBConnection() error {
@@ -151,6 +163,27 @@ func (glcd *GLCD) setupMongoDBConnection() error {
 func (glcd *GLCD) Publish(msg *Message) {
 	encodedRequest, _ := json.Marshal(*msg)
 	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, encodedRequest)
+}
+
+func (glcd *GLCD) SendToIRC(text string) {
+	glcd.IRCChan <- text
+}
+
+func (glcd *GLCD) HandleIRCChannel() {
+	resp := &b3s.BotResponse{
+		Identifier:   glcd.B3SIdentifier,
+		Target:       glcd.B3SChannel,
+		ResponseType: b3s.PRIVMSG,
+		Response:     []string{""},
+	}
+
+	for {
+		msg := <-glcd.IRCChan
+		resp.Response[0] = msg
+		val, _ := json.Marshal(resp)
+		glcd.NSQWriter.Publish(glcd.B3STopic, val)
+		log.Printf("Sending to %s: %s\n", glcd.B3STopic, val)
+	}
 }
 
 func (glcd *GLCD) CleanupClients() error {
@@ -269,7 +302,7 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 	} else if msg.Type == "connected" {
 		glcd.HandleConnected(msg, dataMap)
 	} else if msg.Type == "chat" {
-		glcd.HandleChat(msg, msg.Data)
+		glcd.HandleChat(msg, dataMap)
 	} else if msg.Type == "heartbeat" {
 		glcd.HandleHeartbeat(msg, dataMap)
 	} else if msg.Type == "knock" {
