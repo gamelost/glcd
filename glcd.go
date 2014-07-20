@@ -246,6 +246,7 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 
 	if err != nil {
 		fmt.Printf(err.Error())
+        return err
 	}
 
 	var dataMap map[string]interface{}
