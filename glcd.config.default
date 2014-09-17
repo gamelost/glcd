@@ -1,7 +1,9 @@
 [nsq]
+nsqd-address = localhost:4150
 lookupd-address = localhost:4161
-server-topic = glcd-server
+server-topic = glc-gamestate
 server-channel = main
+glcd-topic = glc-daemon
 
 [mongo]
 servers = localhost
