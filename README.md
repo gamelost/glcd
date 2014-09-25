@@ -1,7 +1,7 @@
 What is this?
 ====
 
-GameLostCrash server daemon for world state. In cooperation with glc-client (https://github.com/gamelost/glc-client), this provides a platform
+GameLostCrash server daemon for world state. In cooperation with glc-client (https://github.com/gamelost/glc-client), this provides a platform for multiplayer gaming, which glc-client implements for 2d metaverse world.
 
 The code here is volatile and experimental, just like its developers. While the goal of glc-client is to create a 2d metaverse, glcd's aim is to be agnostic of all UI and worlds, instead acting strictly as a platform to let clients communicate state to each other.
 
@@ -42,3 +42,13 @@ Messages are received and sent over channels. Of import:
 * Knock: Responds to single client with information on all connected clients.
 * chat: Broadcast to everyone.
 * playerauth: in progress
+
+Files
+====
+* LICENSE - obvious
+* README.md - this file
+* docker
+* glcd-handlers.go - various handlers for the different types of glcd Messages detailed above.
+* glcd-message-types.go - Data structures for the message types
+* glcd.config.default - Default config options. Copy to glcd.config wherever you run glcd.
+* glcd.go - The main server file with the bulk of the setup and message logic.
