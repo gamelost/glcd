@@ -19,7 +19,7 @@ run-base:
 	docker run --name nsqd -d -p 4150:4150 -p 4151:4151 cantsin/nsqd-2.28 \
 	    --broadcast-address=$(DOCKER_IP) \
 	    --lookupd-tcp-address=$(DOCKER_IP):4160
-	docker run --name mongodb -d dockerfile/mongodb
+	docker run --name mongodb -p 27017:27017 -p 28017:28017 -d dockerfile/mongodb
 
 run-local: run-base
 	docker run --name glcd -v $(shell pwd)/../glcd.config.default:/root/glcd.config -d $(USER)/glcd
