@@ -81,7 +81,10 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	glcd.Clients = map[string]*GLCClient{}
 
 	// Connect to Mongo.
-	glcd.setupMongoDBConnection()
+	err := glcd.setupMongoDBConnection()
+	if err != nil {
+		panic("could not connect to database.")
+	}
 
 	// set up channels
 	glcd.setupTopicChannels()
