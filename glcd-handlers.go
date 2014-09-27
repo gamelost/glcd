@@ -11,11 +11,13 @@ func (glcd *GLCD) HandleHeartbeat(msg *Message, dataMap map[string]interface{}) 
 
 	err := ms.Decode(dataMap, &hb)
 	if err != nil {
+		fmt.Println(err.Error())
 		// Old style client.
 		hb.ClientId = msg.ClientId
-		hb.Timestamp = time.Now()
+		hb.Timestamp = time.Now().Unix()
 		hb.Status = "ACTIVE"
 	}
+	fmt.Println("Got a heartbeat.")
 	glcd.HeartbeatChan <- &hb
 }
 
@@ -67,7 +69,7 @@ func (glcd *GLCD) HandleHeartbeatChannel() {
 		hb := <-glcd.HeartbeatChan
 		//fmt.Printf("HandleHeartbeatChannel: Received heartbeat: %+v\n", hb)
 
-		hb.Timestamp = time.Now()
+		hb.Timestamp = time.Now().Unix()
 
 		// see if key and client exists in the map
 		c, exists := glcd.Clients[hb.ClientId]
@@ -81,10 +83,7 @@ func (glcd *GLCD) HandleHeartbeatChannel() {
 			glcd.Publish(&Message{ClientId: hb.ClientId, Type: "playerHeartbeat", Data: hb})
 		}
 		if hb.Status == "QUIT" {
-			if exists {
-				delete(glcd.Clients, hb.ClientId)
-			}
-			// If it doesn't exist, then there's nothing to clear?
+			delete(glcd.Clients, hb.ClientId)
 		} else {
 			c.Heartbeat = hb
 		}

@@ -1,9 +1,5 @@
 package main
 
-import (
-	"time"
-)
-
 type Message struct {
 	ClientId string
 	Type     string // better way to persist type info?
@@ -46,7 +42,7 @@ type PlayerAuthInfo struct {
 // status
 type Heartbeat struct {
 	ClientId  string
-	Timestamp time.Time
+	Timestamp int64
 	Status    string `json:",omitempty"`
 }
 

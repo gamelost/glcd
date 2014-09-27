@@ -163,7 +163,7 @@ func (glcd *GLCD) CleanupClients() error {
 		//fmt.Println("Doing client clean up")
 		// Expire any clients who haven't sent a heartbeat in the last 10 seconds.
 		for k, v := range glcd.Clients {
-			if v.Heartbeat.Timestamp.Unix() < exp {
+			if v.Heartbeat.Timestamp < exp {
 				fmt.Printf("Deleting client %s due to inactivity.\n", v.ClientId)
 				delete(glcd.Clients, k)
 				v.Heartbeat.Status = "QUIT"
