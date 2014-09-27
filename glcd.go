@@ -166,9 +166,8 @@ func (glcd *GLCD) CleanupClients() error {
 			if v.Heartbeat.Timestamp.Unix() < exp {
 				fmt.Printf("Deleting client %s due to inactivity.\n", v.ClientId)
 				delete(glcd.Clients, k)
-				//glcd.Publish(&Message{Type: "playerPassport", Data: PlayerPassport{Action: "playerGone"}}) // somehow add k to this
-			} else {
-				//fmt.Printf("Client has not expired.")
+				v.Heartbeat.Status = "QUIT"
+				glcd.Publish(&Message{ClientId: v.ClientId, Type: "playerHeartbeat", Data: v.Heartbeat})
 			}
 		}
 	}
@@ -266,8 +265,8 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 		return nil
 	}
 
-	// UNIMPLEMENTED TYPES: playerPassport, sendZones, error
-	// add new/future handler functions in glcd-handlers.go
+	// UNIMPLEMENTED TYPES: sendZones, error add new/future handler
+	// functions in glcd-handlers.go
 	if msg.Type == "playerState" {
 		glcd.HandlePlayerState(msg, dataMap)
 	} else if msg.Type == "connected" {
