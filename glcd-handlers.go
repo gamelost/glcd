@@ -7,9 +7,16 @@ import (
 )
 
 func (glcd *GLCD) HandleHeartbeat(msg *Message, dataMap map[string]interface{}) {
-	hb := &Heartbeat{}
-	hb.ClientId = msg.ClientId
-	glcd.HeartbeatChan <- hb
+	var hb Heartbeat
+
+	err := ms.Decode(dataMap, &hb)
+	if err != nil {
+		// Old style client.
+		hb.ClientId = msg.ClientId
+		hb.Timestamp = time.Now()
+		hb.Status = "ACTIVE"
+	}
+	glcd.HeartbeatChan <- &hb
 }
 
 func (glcd *GLCD) HandleKnock(msg *Message, dataMap map[string]interface{}) {
@@ -60,16 +67,26 @@ func (glcd *GLCD) HandleHeartbeatChannel() {
 		hb := <-glcd.HeartbeatChan
 		//fmt.Printf("HandleHeartbeatChannel: Received heartbeat: %+v\n", hb)
 
+		hb.Timestamp = time.Now()
+
 		// see if key and client exists in the map
 		c, exists := glcd.Clients[hb.ClientId]
 
-		if exists {
-			//fmt.Printf("Client %s exists.  Updating heartbeat.\n", hb.ClientId)
-			c.Heartbeat = time.Now()
+		if !exists {
+			c := &GLCClient{ClientId: hb.ClientId, Heartbeat: hb, Authenticated: false}
+			glcd.Clients[hb.ClientId] = c
+		}
+
+		if (!exists) || c.Heartbeat.Status != hb.Status {
+			glcd.Publish(&Message{ClientId: c.ClientId, Type: "playerHeartbeat", Data: hb})
+		}
+		if hb.Status == "QUIT" {
+			if exists {
+				delete(glcd.Clients, hb.ClientId)
+			}
+			// If it doesn't exist, then there's nothing to clear?
 		} else {
-			//fmt.Printf("Adding client %s to client list\n", hb.ClientId)
-			client := &GLCClient{ClientId: hb.ClientId, Heartbeat: time.Now(), Authenticated: false}
-			glcd.Clients[hb.ClientId] = client
+			c.Heartbeat = hb
 		}
 	}
 }

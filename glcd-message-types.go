@@ -42,9 +42,12 @@ type PlayerAuthInfo struct {
 	Password string `bson:"password"`
 }
 
+// Hearbeat includes Status: idle, away, typing, etc. "QUIT" is a special
+// status
 type Heartbeat struct {
 	ClientId  string
 	Timestamp time.Time
+	Status    string `json:",omitempty"`
 }
 
 /* Players coming in and out */
