@@ -73,12 +73,12 @@ func (glcd *GLCD) HandleHeartbeatChannel() {
 		c, exists := glcd.Clients[hb.ClientId]
 
 		if !exists {
-			c := &GLCClient{ClientId: hb.ClientId, Heartbeat: hb, Authenticated: false}
+			c = &GLCClient{ClientId: hb.ClientId, Heartbeat: hb, Authenticated: false}
 			glcd.Clients[hb.ClientId] = c
 		}
 
 		if (!exists) || c.Heartbeat.Status != hb.Status {
-			glcd.Publish(&Message{ClientId: c.ClientId, Type: "playerHeartbeat", Data: hb})
+			glcd.Publish(&Message{ClientId: hb.ClientId, Type: "playerHeartbeat", Data: hb})
 		}
 		if hb.Status == "QUIT" {
 			if exists {
