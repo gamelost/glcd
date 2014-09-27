@@ -7,9 +7,16 @@ import (
 )
 
 func (glcd *GLCD) HandleHeartbeat(msg *Message, dataMap map[string]interface{}) {
-	hb := &Heartbeat{}
-	hb.ClientId = msg.ClientId
-	glcd.HeartbeatChan <- hb
+	var hb Heartbeat
+
+	err := ms.Decode(dataMap, &hb)
+	if err != nil {
+		// Old style client.
+		hb.ClientId = msg.ClientId
+		hb.Timestamp = time.Now()
+		hb.Status = "ACTIVE"
+	}
+	glcd.HeartbeatChan <- &hb
 }
 
 func (glcd *GLCD) HandleKnock(msg *Message, dataMap map[string]interface{}) {
