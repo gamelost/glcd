@@ -21,8 +21,8 @@ func (glcd *GLCD) HandleHeartbeat(msg *Message, dataMap map[string]interface{}) 
 	glcd.HeartbeatChan <- &hb
 }
 
-func (glcd *GLCD) HandleKnock(msg *Message, dataMap map[string]interface{}) {
-	glcd.KnockChan <- glcd.Clients[msg.ClientId]
+func (glcd *GLCD) HandleBroadcast(msg *Message, dataMap map[string]interface{}) {
+	glcd.BroadcastChan <- msg
 }
 
 func (glcd *GLCD) HandlePlayerAuth(msg *Message, dataMap map[string]interface{}) {
@@ -90,19 +90,10 @@ func (glcd *GLCD) HandleHeartbeatChannel() {
 	}
 }
 
-func (glcd *GLCD) HandleKnockChannel() error {
+func (glcd *GLCD) HandleBroadcastChannel() error {
 	for {
-		client := <-glcd.KnockChan
-		fmt.Printf("Received knock from %s\n", client.ClientId)
-		players := make(Players, len(glcd.Clients))
-
-		i := 0
-		for _, c := range glcd.Clients {
-			players[i] = PlayerInfo{ClientId: c.ClientId}
-			i++
-		}
-
-		glcd.Publish(&Message{ClientId: client.ClientId, Type: "knock", Data: players})
+		msg := <-glcd.BroadcastChan
+		glcd.Publish(msg)
 	}
 }
 
