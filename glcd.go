@@ -63,7 +63,7 @@ type GLCD struct {
 
 	// game state channels
 	HeartbeatChan   chan *Heartbeat
-	KnockChan       chan *GLCClient
+	BroadcastChan   chan *Message
 	AuthChan        chan *PlayerAuthInfo
 	PlayerStateChan chan *PlayerState
 
@@ -113,7 +113,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	go glcd.CleanupClients()
 	go glcd.HandlePlayerAuthChannel()
 	go glcd.HandleHeartbeatChannel()
-	go glcd.HandleKnockChannel()
+	go glcd.HandleBroadcastChannel()
 	go glcd.HandlePlayerStateChannel()
 
 	return nil
@@ -122,7 +122,7 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 func (glcd *GLCD) setupTopicChannels() {
 	// set up channels
 	glcd.HeartbeatChan = make(chan *Heartbeat)
-	glcd.KnockChan = make(chan *GLCClient)
+	glcd.BroadcastChan = make(chan *Message)
 	glcd.AuthChan = make(chan *PlayerAuthInfo)
 	glcd.PlayerStateChan = make(chan *PlayerState)
 }
@@ -275,8 +275,8 @@ func (glcd *GLCD) HandleMessage(nsqMessage *nsq.Message) error {
 		glcd.HandleChat(msg, msg.Data)
 	} else if msg.Type == "heartbeat" {
 		glcd.HandleHeartbeat(msg, dataMap)
-	} else if msg.Type == "knock" {
-		glcd.HandleKnock(msg, dataMap)
+	} else if msg.Type == "broadcast" {
+		glcd.HandleBroadcast(msg, dataMap)
 	} else if msg.Type == "playerAuth" {
 		glcd.HandlePlayerAuth(msg, dataMap)
 	} else {
