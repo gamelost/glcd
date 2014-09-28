@@ -9,14 +9,14 @@ build:
 	docker build -no-cache -rm -t $(USER)/glcd .
 
 deps:
-	docker pull cantsin/nsqlookupd-2.28
-	docker pull cantsin/nsqd-2.28
+	docker pull nsqio/nsqlookupd
+	docker pull nsqio/nsqd
 	docker pull dockerfile/mongodb
 	docker pull cantsin/glcd
 
 run-base:
-	docker run --name lookupd -d -p 4160:4160 -p 4161:4161 cantsin/nsqlookupd-2.28
-	docker run --name nsqd -d -p 4150:4150 -p 4151:4151 cantsin/nsqd-2.28 \
+	docker run --name lookupd -d -p 4160:4160 -p 4161:4161 nsqio/nsqlookupd
+	docker run --name nsqd -d -p 4150:4150 -p 4151:4151 nsqio/nsqd \
 	    --broadcast-address=$(DOCKER_IP) \
 	    --lookupd-tcp-address=$(DOCKER_IP):4160
 	docker run --name mongodb -p 27017:27017 -p 28017:28017 -d dockerfile/mongodb

@@ -83,7 +83,11 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	// Connect to Mongo.
 	err := glcd.setupMongoDBConnection()
 	if err != nil {
-		panic("could not connect to database.")
+		servers, err2 := glcd.ConfigFile.GetString("mongo", "servers")
+		if err2 != nil {
+			panic("Could not get mongo server from configuration.")
+		}
+		panic(fmt.Sprintf("Could not connect to database %s.", servers))
 	}
 
 	// set up channels
