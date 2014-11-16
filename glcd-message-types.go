@@ -29,19 +29,6 @@ type PlayerState struct {
 	Name     string `json:",omitempty"`
 }
 
-type PlayerAuthInfo struct {
-	Name     string `bson:"user"`
-	Password string `bson:"password"`
-}
-
-// Hearbeat includes Status: idle, away, typing, etc. "QUIT" is a special
-// status
-type Heartbeat struct {
-	ClientId  string
-	Timestamp int64
-	Status    string `json:",omitempty"`
-}
-
 /* Players coming in and out */
 type PlayerPassport struct {
 	Action string

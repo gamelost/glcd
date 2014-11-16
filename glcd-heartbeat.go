@@ -4,41 +4,49 @@ import (
        "time"
 )
 
-type HeartbeatWatcher struct {
-       //hb chan Heartbeat
+// Hearbeat includes Status: idle, away, typing, etc. "QUIT" is a special
+// status
+type Heartbeat struct {
+	ClientId  string
+	Timestamp int64
+	Status    string `json:",omitempty"`
+}
+
+type HeartbeatService struct {
        glcd *GLCD
 }
 
-func (hbw *HeartbeatWatcher) HandleHeartbeatChannel() {
+func (hbs *HeartbeatService) HandleHeartbeatChannel() {
        for {
-               hb := <-hbw.glcd.HeartbeatChan
+               hb := <-hbs.glcd.HeartbeatChan
                //fmt.Printf("HandleHeartbeatChannel: Received hb: %+v\n", heartbeat)
 
                hb.Timestamp = time.Now().Unix()
 
                // see if key and client exists in the map
-               c, exists := hbw.glcd.Clients[hb.ClientId]
+               c, exists := hbs.glcd.Clients[hb.ClientId]
 
                if !exists {
                        c = &GLCClient{ClientId: hb.ClientId, Heartbeat: hb, Authenticated: false}
-                       hbw.glcd.Clients[hb.ClientId] = c
+                       hbs.glcd.Clients[hb.ClientId] = c
                }
 
-               if (!exists) || c.Heartbeat.Status != hb.Status {
-                       hbw.glcd.Publish(&Message{ClientId: hb.ClientId, Type: "playerHeartbeat", Data: hb})
+               if !exists || c.Heartbeat.Status != hb.Status {
+                       hbs.glcd.Publish(&Message{ClientId: hb.ClientId, Type: "playerHeartbeat", Data: hb})
                }
+
                if hb.Status == "QUIT" {
-                       delete(hbw.glcd.Clients, hb.ClientId)
+                       delete(hbs.glcd.Clients, hb.ClientId)
                } else {
                        c.Heartbeat = hb
                }
        }
 }
 
-func (hbw *HeartbeatWatcher) Serve() {
-	hbw.HandleHeartbeatChannel();
+func (hbs *HeartbeatService) Serve() {
+	hbs.HandleHeartbeatChannel();
 }
 
-func (hbw *HeartbeatWatcher) Stop() {
+func (hbs *HeartbeatService) Stop() {
 	// Do something.
 }

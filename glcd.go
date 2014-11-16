@@ -95,12 +95,11 @@ func (glcd *GLCD) init(config *GLCConfig) error {
 	glcd.GLCDaemonTopic.ConnectToLookupd(glcd.Config.NSQ.LookupdAddress)
 
 	// Created supervisor's services.
-	hbw := &HeartbeatWatcher{glcd: glcd}
-	glcd.Supervisor.Add(hbw)
+	glcd.Supervisor.Add(&HeartbeatService{glcd: glcd})
+	glcd.Supervisor.Add(&PlayerAuthService{glcd: glcd})
 
 	// goroutines to handle concurrent events
 	go glcd.CleanupClients()
-	go glcd.HandlePlayerAuthChannel()
 	go glcd.HandleBroadcastChannel()
 	go glcd.HandlePlayerStateChannel()
 

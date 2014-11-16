@@ -71,30 +71,3 @@ func (glcd *GLCD) HandleBroadcastChannel() error {
 	}
 }
 
-func (glcd *GLCD) HandlePlayerAuthChannel() error {
-	for {
-		authInfo := <-glcd.AuthChan
-		fmt.Printf("Received auth for user %s\n", authInfo.Name)
-
-		_, ok := glcd.Clients[authInfo.Name]
-
-		if ok {
-			authed, err := glcd.isPasswordCorrect(authInfo.Name, authInfo.Password)
-
-			if err != nil {
-				fmt.Printf("User %s %s\n", authInfo.Name, err)
-			}
-
-			if authed {
-				fmt.Printf("Auth successful for user %s\n", authInfo.Name)
-				// ALLOW PLAYERS DO ANYTHING
-				// UPDATE glcd.Clients.AUthenticated = true
-				glcd.Clients[authInfo.Name].Authenticated = true
-			} else {
-				fmt.Printf("Auth failed for user %s\n", authInfo.Name)
-			}
-		} else {
-			fmt.Printf("User %s does not exist!\n", authInfo.Name)
-		}
-	}
-}
