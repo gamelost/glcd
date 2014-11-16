@@ -64,32 +64,6 @@ func (glcd *GLCD) HandlePlayerStateChannel() {
 	}
 }
 
-func (glcd *GLCD) HandleHeartbeatChannel() {
-	for {
-		hb := <-glcd.HeartbeatChan
-		//fmt.Printf("HandleHeartbeatChannel: Received heartbeat: %+v\n", hb)
-
-		hb.Timestamp = time.Now().Unix()
-
-		// see if key and client exists in the map
-		c, exists := glcd.Clients[hb.ClientId]
-
-		if !exists {
-			c = &GLCClient{ClientId: hb.ClientId, Heartbeat: hb, Authenticated: false}
-			glcd.Clients[hb.ClientId] = c
-		}
-
-		if (!exists) || c.Heartbeat.Status != hb.Status {
-			glcd.Publish(&Message{ClientId: hb.ClientId, Type: "playerHeartbeat", Data: hb})
-		}
-		if hb.Status == "QUIT" {
-			delete(glcd.Clients, hb.ClientId)
-		} else {
-			c.Heartbeat = hb
-		}
-	}
-}
-
 func (glcd *GLCD) HandleBroadcastChannel() error {
 	for {
 		msg := <-glcd.BroadcastChan
