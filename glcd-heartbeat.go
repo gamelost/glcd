@@ -10,12 +10,7 @@ type HeartbeatWatcher struct {
 }
 
 func (hbw *HeartbeatWatcher) HandleHeartbeatChannel() {
-       count := 0
        for {
-               if (count >= 4) {
-                       count = 1/(4-count)
-               }
-
                hb := <-hbw.glcd.HeartbeatChan
                //fmt.Printf("HandleHeartbeatChannel: Received hb: %+v\n", heartbeat)
 
@@ -37,7 +32,6 @@ func (hbw *HeartbeatWatcher) HandleHeartbeatChannel() {
                } else {
                        c.Heartbeat = hb
                }
-               count += 1
        }
 }
 
