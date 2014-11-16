@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	// "github.com/gamelost/bot3server/server"
+	suture "github.com/thejerf/suture"
 	nsq "github.com/gamelost/go-nsq"
 	// irc "github.com/gamelost/goirc/client"
 	"labix.org/v2/mgo"
@@ -49,8 +50,9 @@ type GLCClient struct {
 	Heartbeat     *Heartbeat
 }
 
-// struct type for Bot3
 type GLCD struct {
+	Supervisor *suture.Supervisor
+
 	Online     bool
 	ConfigFile *iniconf.ConfigFile
 
@@ -74,6 +76,7 @@ type GLCD struct {
 }
 
 func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
+	glcd.Supervisor = suture.NewSimple("GlcdSupervisor")
 
 	glcd.ConfigFile = conf
 	glcd.Online = false
@@ -113,12 +116,17 @@ func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
 	glcd.GLCDaemonTopic.AddHandler(glcd)
 	glcd.GLCDaemonTopic.ConnectToLookupd(lookupdAddress)
 
+	// Created supervisor's services.
+	hbw := &HeartbeatWatcher{glcd: glcd}
+	glcd.Supervisor.Add(hbw)
+
 	// goroutines to handle concurrent events
 	go glcd.CleanupClients()
 	go glcd.HandlePlayerAuthChannel()
-	go glcd.HandleHeartbeatChannel()
 	go glcd.HandleBroadcastChannel()
 	go glcd.HandlePlayerStateChannel()
+
+	go glcd.Supervisor.ServeBackground()
 
 	return nil
 }
