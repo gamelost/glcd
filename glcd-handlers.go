@@ -41,14 +41,14 @@ func (glcd *GLCD) HandleChat(msg *Message, data interface{}) {
 
 func (glcd *GLCD) HandlePlayerState(msg *Message, dataMap map[string]interface{}) {
 
+	// make sure ClientId and Name are extant
 	var ps PlayerState
 	err := ms.Decode(dataMap, &ps)
 	if err != nil {
 		fmt.Println(err.Error())
 	} else {
 		ps.ClientId = msg.ClientId
-		//fmt.Printf("Player state: %+v\n", ps)
-		glcd.PlayerStateChan <- &ps
+		glcd.PlayerStateChan <- msg
 	}
 }
 
