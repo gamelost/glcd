@@ -16,37 +16,37 @@ type HeartbeatService struct {
        glcd *GLCD
 }
 
-func (hbs *HeartbeatService) HandleHeartbeatChannel() {
+func (service *HeartbeatService) HandleHeartbeatChannel() {
        for {
-               hb := <-hbs.glcd.HeartbeatChan
+               hb := <-service.glcd.HeartbeatChan
                //fmt.Printf("HandleHeartbeatChannel: Received hb: %+v\n", heartbeat)
 
                hb.Timestamp = time.Now().Unix()
 
                // see if key and client exists in the map
-               c, exists := hbs.glcd.Clients[hb.ClientId]
+               c, exists := service.glcd.Clients[hb.ClientId]
 
                if !exists {
                        c = &GLCClient{ClientId: hb.ClientId, Heartbeat: hb, Authenticated: false}
-                       hbs.glcd.Clients[hb.ClientId] = c
+                       service.glcd.Clients[hb.ClientId] = c
                }
 
                if !exists || c.Heartbeat.Status != hb.Status {
-                       hbs.glcd.Publish(&Message{ClientId: hb.ClientId, Type: "playerHeartbeat", Data: hb})
+                       service.glcd.Publish(&Message{ClientId: hb.ClientId, Type: "playerHeartbeat", Data: hb})
                }
 
                if hb.Status == "QUIT" {
-                       delete(hbs.glcd.Clients, hb.ClientId)
+                       delete(service.glcd.Clients, hb.ClientId)
                } else {
                        c.Heartbeat = hb
                }
        }
 }
 
-func (hbs *HeartbeatService) Serve() {
-	hbs.HandleHeartbeatChannel();
+func (service *HeartbeatService) Serve() {
+	service.HandleHeartbeatChannel();
 }
 
-func (hbs *HeartbeatService) Stop() {
+func (service *HeartbeatService) Stop() {
 	// Do something.
 }

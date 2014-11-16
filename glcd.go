@@ -97,10 +97,10 @@ func (glcd *GLCD) init(config *GLCConfig) error {
 	// Created supervisor's services.
 	glcd.Supervisor.Add(&HeartbeatService{glcd: glcd})
 	glcd.Supervisor.Add(&PlayerAuthService{glcd: glcd})
+	glcd.Supervisor.Add(&HandleBroadcastService{glcd: glcd})
 
 	// goroutines to handle concurrent events
 	go glcd.CleanupClients()
-	go glcd.HandleBroadcastChannel()
 	go glcd.HandlePlayerStateChannel()
 
 	go glcd.Supervisor.ServeBackground()

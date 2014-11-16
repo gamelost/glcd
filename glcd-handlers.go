@@ -63,11 +63,3 @@ func (glcd *GLCD) HandlePlayerStateChannel() {
 		glcd.Publish(&Message{Type: "playerState", Data: ps})
 	}
 }
-
-func (glcd *GLCD) HandleBroadcastChannel() error {
-	for {
-		msg := <-glcd.BroadcastChan
-		glcd.Publish(msg)
-	}
-}
-

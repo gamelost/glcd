@@ -13,15 +13,15 @@ type PlayerAuthService struct {
   glcd *GLCD
 }
 
-func (pas *PlayerAuthService) HandlePlayerAuthChannel() error {
+func (service *PlayerAuthService) HandlePlayerAuthChannel() error {
 	for {
-		authInfo := <-pas.glcd.AuthChan
+		authInfo := <-service.glcd.AuthChan
 		fmt.Printf("Received auth for user %s\n", authInfo.Name)
 
-		_, ok := pas.glcd.Clients[authInfo.Name]
+		_, ok := service.glcd.Clients[authInfo.Name]
 
 		if ok {
-			authed, err := pas.glcd.isPasswordCorrect(authInfo.Name, authInfo.Password)
+			authed, err := service.glcd.isPasswordCorrect(authInfo.Name, authInfo.Password)
 
 			if err != nil {
 				fmt.Printf("User %s %s\n", authInfo.Name, err)
@@ -30,8 +30,8 @@ func (pas *PlayerAuthService) HandlePlayerAuthChannel() error {
 			if authed {
 				fmt.Printf("Auth successful for user %s\n", authInfo.Name)
 				// ALLOW PLAYERS DO ANYTHING
-				// UPDATE pas.glcd.Clients.AUthenticated = true
-				pas.glcd.Clients[authInfo.Name].Authenticated = true
+				// UPDATE service.glcd.Clients.AUthenticated = true
+				service.glcd.Clients[authInfo.Name].Authenticated = true
 			} else {
 				fmt.Printf("Auth failed for user %s\n", authInfo.Name)
 			}
@@ -41,10 +41,10 @@ func (pas *PlayerAuthService) HandlePlayerAuthChannel() error {
 	}
 }
 
-func (pas *PlayerAuthService) Serve() {
-	pas.HandlePlayerAuthChannel();
+func (service *PlayerAuthService) Serve() {
+	service.HandlePlayerAuthChannel();
 }
 
-func (pas *PlayerAuthService) Stop() {
+func (service *PlayerAuthService) Stop() {
 	// Do something.
 }
