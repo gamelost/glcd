@@ -25,12 +25,8 @@ type PlayerInfo struct {
 type Players []PlayerInfo
 
 type PlayerState struct {
-	ClientId    string
-	Name        string `json:",omitempty"`
-	X           int64
-	Y           int64
-	AvatarId    string `json:",omitempty"`
-	AvatarState int64  `json:",omitempty"`
+	ClientId string `json:",omitempty"`
+	Name     string `json:",omitempty"`
 }
 
 type PlayerAuthInfo struct {
@@ -49,7 +45,6 @@ type Heartbeat struct {
 /* Players coming in and out */
 type PlayerPassport struct {
 	Action string
-	Avatar string
 }
 
 type ErrorMessage string

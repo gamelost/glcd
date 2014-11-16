@@ -67,7 +67,7 @@ type GLCD struct {
 	HeartbeatChan   chan *Heartbeat
 	BroadcastChan   chan *Message
 	AuthChan        chan *PlayerAuthInfo
-	PlayerStateChan chan *PlayerState
+	PlayerStateChan chan *Message
 
 	QuitChan chan os.Signal
 
@@ -136,7 +136,7 @@ func (glcd *GLCD) setupTopicChannels() {
 	glcd.HeartbeatChan = make(chan *Heartbeat)
 	glcd.BroadcastChan = make(chan *Message)
 	glcd.AuthChan = make(chan *PlayerAuthInfo)
-	glcd.PlayerStateChan = make(chan *PlayerState)
+	glcd.PlayerStateChan = make(chan *Message)
 }
 
 func (glcd *GLCD) setupMongoDBConnection() error {
