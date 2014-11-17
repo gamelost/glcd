@@ -5,16 +5,16 @@ type BroadcastService struct {
 }
 
 func (service *BroadcastService) HandleBroadcastChannel() error {
-	for {
-		msg := <-service.glcd.BroadcastChan
-		service.glcd.Publish(msg)
-	}
+  for {
+    msg := <-service.glcd.BroadcastChan
+    service.glcd.Publish(msg)
+  }
 }
 
 func (service *BroadcastService) Serve() {
-	service.HandleBroadcastChannel();
+  service.HandleBroadcastChannel()
 }
 
 func (service *BroadcastService) Stop() {
-	// Do something.
+  // Do something.
 }

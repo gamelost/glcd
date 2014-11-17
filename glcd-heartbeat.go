@@ -7,9 +7,9 @@ import (
 // Hearbeat includes Status: idle, away, typing, etc. "QUIT" is a special
 // status
 type Heartbeat struct {
-  ClientId string
+  ClientId  string
   Timestamp int64
-  Status string `json:",omitempty"`
+  Status    string `json:",omitempty"`
 }
 
 type HeartbeatService struct {
@@ -44,7 +44,7 @@ func (service *HeartbeatService) HandleHeartbeatChannel() {
 }
 
 func (service *HeartbeatService) Serve() {
-  service.HandleHeartbeatChannel();
+  service.HandleHeartbeatChannel()
 }
 
 func (service *HeartbeatService) Stop() {
