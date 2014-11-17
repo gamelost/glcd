@@ -68,7 +68,7 @@ func ReadConfiguration() *GLCConfig {
   setString("nsq", "server-topic", "Topic GLCD listens on for clients",
     &ret.NSQ.ReadTopic, configFile)
   setString("nsq", "glcd-topic", "Topic GLCD broadcasts to clients via",
-    &ret.NSQ.Address, configFile)
+    &ret.NSQ.PublishTopic, configFile)
 
   // Mongo configuration
   setString("mongo", "servers", "Server(s) of Mongo daemons", &ret.Mongo.Servers, configFile)
