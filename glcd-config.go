@@ -89,6 +89,6 @@ func (conf *GLCConfig) PrintConfiguration() {
 
   fmt.Printf("\n")
   fmt.Printf("[%s]\n", "mongo")
-  fmt.Printf("%s: %s\n", "servers", conf.Mongo.Servers)
-  fmt.Printf("%s: %s\n", "db", conf.Mongo.DB)
+  fmt.Printf("%s = %s\n", "servers", conf.Mongo.Servers)
+  fmt.Printf("%s = %s\n", "db", conf.Mongo.DB)
 }
