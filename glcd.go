@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	iniconf "code.google.com/p/goconf/conf"
 	"crypto/sha512"
 	"encoding/json"
 	"errors"
@@ -13,15 +12,10 @@ import (
 	// irc "github.com/gamelost/goirc/client"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-)
-
-const (
-	GLCD_CONFIG = "glcd.config"
 )
 
 func main() {
@@ -29,14 +23,12 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	// read in necessary configuration
-	configFile, err := iniconf.ReadConfigFile(GLCD_CONFIG)
-	if err != nil {
-		log.Fatal("Unable to read configuration file. Exiting now.")
-	}
-
 	glcd := &GLCD{QuitChan: sigChan}
-	glcd.init(configFile)
+
+	config := ReadConfiguration()
+	config.PrintConfiguration()
+
+	glcd.init(config)
 
 	// receiving quit shuts down
 	<-glcd.QuitChan
@@ -54,12 +46,11 @@ type GLCD struct {
 	Supervisor *suture.Supervisor
 
 	Online     bool
-	ConfigFile *iniconf.ConfigFile
+	Config    *GLCConfig
 
 	// NSQ input/output
 	NSQWriter             *nsq.Writer
 	GLCDaemonTopic        *nsq.Reader
-	GLCGameStateTopicName string
 	GLCDaemonTopicChannel string
 	Clients               map[string]*GLCClient
 
@@ -75,46 +66,33 @@ type GLCD struct {
 	MongoDB      *mgo.Database
 }
 
-func (glcd *GLCD) init(conf *iniconf.ConfigFile) error {
+func (glcd *GLCD) init(config *GLCConfig) error {
 	glcd.Supervisor = suture.NewSimple("GlcdSupervisor")
 
-	glcd.ConfigFile = conf
+	glcd.Config = config
 	glcd.Online = false
 
 	glcd.Clients = map[string]*GLCClient{}
 
 	// Connect to Mongo.
-	err := glcd.setupMongoDBConnection()
-	if err != nil {
-		servers, err2 := glcd.ConfigFile.GetString("mongo", "servers")
-		if err2 != nil {
-			panic("Could not get mongo server from configuration.")
-		}
-		panic(fmt.Sprintf("Could not connect to database %s.", servers))
-	}
+	glcd.setupMongoDBConnection()
 
 	// set up channels
 	glcd.setupTopicChannels()
 
-	nsqdAddress, _ := conf.GetString("nsq", "nsqd-address")
-	lookupdAddress, _ := conf.GetString("nsq", "lookupd-address")
-	glcd.GLCGameStateTopicName, _ = conf.GetString("nsq", "server-topic")
-
-	glcdTopic, _ := conf.GetString("nsq", "glcd-topic")
-
 	// Create the channel, by connecting to lookupd. (TODO; if it doesn't
 	// exist. Also do it the right way with a Register command?)
-	glcd.NSQWriter = nsq.NewWriter(nsqdAddress)
-	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, []byte("{\"client\":\"server\"}"))
+	glcd.NSQWriter = nsq.NewWriter(glcd.Config.NSQ.Address)
+	glcd.NSQWriter.Publish(glcd.Config.NSQ.PublishTopic, []byte("{\"client\":\"server\"}"))
 
 	// set up reader for glcdTopic
-	reader, err := nsq.NewReader(glcdTopic, "main")
+	reader, err := nsq.NewReader(glcd.Config.NSQ.ReadTopic, "main")
 	if err != nil {
 		glcd.QuitChan <- syscall.SIGINT
 	}
 	glcd.GLCDaemonTopic = reader
 	glcd.GLCDaemonTopic.AddHandler(glcd)
-	glcd.GLCDaemonTopic.ConnectToLookupd(lookupdAddress)
+	glcd.GLCDaemonTopic.ConnectToLookupd(glcd.Config.NSQ.LookupdAddress)
 
 	// Created supervisor's services.
 	hbw := &HeartbeatWatcher{glcd: glcd}
@@ -139,33 +117,22 @@ func (glcd *GLCD) setupTopicChannels() {
 	glcd.PlayerStateChan = make(chan *Message)
 }
 
-func (glcd *GLCD) setupMongoDBConnection() error {
+func (glcd *GLCD) setupMongoDBConnection() {
 
 	// Connect to Mongo.
-	servers, err := glcd.ConfigFile.GetString("mongo", "servers")
+	var err error
+
+	glcd.MongoSession, err = mgo.Dial(glcd.Config.Mongo.Servers)
 	if err != nil {
-		return err
+		panic(fmt.Sprintf("Could not connect to database %s.", ))
 	}
 
-	glcd.MongoSession, err = mgo.Dial(servers)
-	if err != nil {
-		return err
-	}
-
-	db, err := glcd.ConfigFile.GetString("mongo", "db")
-	if err != nil {
-		return err
-	} else {
-		fmt.Println("Successfully obtained config from mongo")
-	}
-
-	glcd.MongoDB = glcd.MongoSession.DB(db)
-	return nil
+	glcd.MongoDB = glcd.MongoSession.DB(glcd.Config.Mongo.DB)
 }
 
 func (glcd *GLCD) Publish(msg *Message) {
 	encodedRequest, _ := json.Marshal(*msg)
-	glcd.NSQWriter.Publish(glcd.GLCGameStateTopicName, encodedRequest)
+	glcd.NSQWriter.Publish(glcd.Config.NSQ.PublishTopic, encodedRequest)
 }
 
 func (glcd *GLCD) CleanupClients() error {
