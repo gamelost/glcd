@@ -1,20 +1,20 @@
 package main
 
-type HandleBroadcastService struct {
+type BroadcastService struct {
   glcd *GLCD
 }
 
-func (service *HandleBroadcastService) HandleBroadcastChannel() error {
+func (service *BroadcastService) HandleBroadcastChannel() error {
 	for {
 		msg := <-service.glcd.BroadcastChan
 		service.glcd.Publish(msg)
 	}
 }
 
-func (service *HandleBroadcastService) Serve() {
+func (service *BroadcastService) Serve() {
 	service.HandleBroadcastChannel();
 }
 
-func (service *HandleBroadcastService) Stop() {
+func (service *BroadcastService) Stop() {
 	// Do something.
 }

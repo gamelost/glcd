@@ -24,11 +24,6 @@ type PlayerInfo struct {
 
 type Players []PlayerInfo
 
-type PlayerState struct {
-	ClientId string `json:",omitempty"`
-	Name     string `json:",omitempty"`
-}
-
 /* Players coming in and out */
 type PlayerPassport struct {
 	Action string

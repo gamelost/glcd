@@ -34,14 +34,6 @@ func main() {
 	<-glcd.QuitChan
 }
 
-type GLCClient struct {
-	Name          string
-	ClientId      string
-	Authenticated bool
-	State         *PlayerState
-	Heartbeat     *Heartbeat
-}
-
 type GLCD struct {
 	Supervisor *suture.Supervisor
 
@@ -94,14 +86,12 @@ func (glcd *GLCD) init(config *GLCConfig) error {
 	glcd.GLCDaemonTopic.AddHandler(glcd)
 	glcd.GLCDaemonTopic.ConnectToLookupd(glcd.Config.NSQ.LookupdAddress)
 
-	// Created supervisor's services.
+	// Supervisor Tree services to handle concurrent events
 	glcd.Supervisor.Add(&HeartbeatService{glcd: glcd})
 	glcd.Supervisor.Add(&PlayerAuthService{glcd: glcd})
-	glcd.Supervisor.Add(&HandleBroadcastService{glcd: glcd})
-
-	// goroutines to handle concurrent events
-	go glcd.CleanupClients()
-	go glcd.HandlePlayerStateChannel()
+	glcd.Supervisor.Add(&BroadcastService{glcd: glcd})
+	glcd.Supervisor.Add(&PlayerStateService{glcd: glcd})
+	glcd.Supervisor.Add(&ClientCleanupService{glcd: glcd})
 
 	go glcd.Supervisor.ServeBackground()
 
@@ -132,23 +122,6 @@ func (glcd *GLCD) setupMongoDBConnection() {
 func (glcd *GLCD) Publish(msg *Message) {
 	encodedRequest, _ := json.Marshal(*msg)
 	glcd.NSQWriter.Publish(glcd.Config.NSQ.PublishTopic, encodedRequest)
-}
-
-func (glcd *GLCD) CleanupClients() error {
-	for {
-		exp := time.Now().Unix()
-		<-time.After(time.Second * 10)
-		//fmt.Println("Doing client clean up")
-		// Expire any clients who haven't sent a heartbeat in the last 10 seconds.
-		for k, v := range glcd.Clients {
-			if v.Heartbeat.Timestamp < exp {
-				fmt.Printf("Deleting client %s due to inactivity.\n", v.ClientId)
-				delete(glcd.Clients, k)
-				v.Heartbeat.Status = "QUIT"
-				glcd.Publish(&Message{ClientId: v.ClientId, Type: "playerHeartbeat", Data: v.Heartbeat})
-			}
-		}
-	}
 }
 
 // Send a zone file update.

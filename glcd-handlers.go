@@ -56,10 +56,3 @@ func (glcd *GLCD) HandleConnected(msg *Message, dataMap map[string]interface{}) 
 	fmt.Println("Received connected from client")
 	glcd.SendZones()
 }
-
-func (glcd *GLCD) HandlePlayerStateChannel() {
-	for {
-		ps := <-glcd.PlayerStateChan
-		glcd.Publish(&Message{Type: "playerState", Data: ps})
-	}
-}
